@@ -101,7 +101,7 @@ void onDataReceive(const uint8_t *mac, const uint8_t *incomingData, int len){
     
     
     xSemaphoreTake(mutex, portMAX_DELAY);                                           // Blocca il mutex prima di accedere al vettore condiviso
-    holdBackQueue.push_back(auctionMessageToReceive)                                // aggiungo il messagio in arrivo nella coda, dove sarà riordinato dal thread addetto
+    holdBackQueue.push_back(auctionMessageToReceive);                               // aggiungo il messagio in arrivo nella coda, dove sarà riordinato dal thread addetto
     xSemaphoreGive(mutex);                                                          // Rilascia il mutex dopo l'accesso
 
     /*
@@ -131,7 +131,7 @@ void setup() {
 
   esp_now_register_send_cb(OnDataSent);                                             // registro la funzione "OnDataSent()" come funzione di callback all'invio di un messagio
 
-  memcpy(peerInfo.peer_addr, broadcastAddress, 6);                                  // copio le informazione dei peer nelle locazioni dei peer address
+  memcpy(peerInfo.peer_addr, broadcastAddress, 5);                                  // copio le informazione dei peer nelle locazioni dei peer address
   peerInfo.channel = 0;
   peerInfo.encrypt = false;
 
@@ -155,11 +155,12 @@ void setup() {
 /*************************FUNZIONE LOOP***************************************************/
 void loop() {
   
-  if(buttonPressed){                                                                // Se è stato premuto il bottone di inizio asta
+  if(buttonPressed){                                                                 // Se è stato premuto il bottone di inizio asta
+    buttonPressed = false;                                                               
     startAuction()                                                                  // setto le variabili iniziali, tra cui la variabile che segna l'inizio dell'asta
   }
 
-  while(auctionStarted){                                                            // finchè l'asta non è finita 
+  if(auctionStarted){                                                               // finchè l'asta non è finita 
     checkForIncomingMessages();
     checkEndAuction();                                                     
   }
