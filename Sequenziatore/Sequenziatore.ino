@@ -9,9 +9,22 @@
 
 // Indirizzo di broadcast per inviare a tutti i nodi
 uint8_t broadcastAddress[] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
+String mac_sequencer = "ac:15:18:e9:9f:4c";
+
+// Crea la mappa per associare MAC address a numeri da 0 a 4
+std::map<std::string, int> macToNumberMap;
+
+// Aggiungi alcune associazioni MAC address -> numero
+macToNumberMap["ac:15:18:e9:9f:4c"] = 0;
+macToNumberMap["f8:b3:b7:2c:71:80"] = 1;
+macToNumberMap["4c:11:ae:65:af:08"] = 2;
+macToNumberMap["f8:b3:b7:2c:71:80"] = 3;
+macToNumberMap["f8:b3:b7:2c:71:80"] = 4;
 
 // Parametri asta e variabili globali
 int sequenceNumber = 0;                                 //serve al sequenziatore per impartire l'ordine totale
+int myNodeId = 0;                                       //id del nodo
+String myMacAddress = "";
 int vectorClock[NUM_NODES] = {0,0,0,0,0};               //serve a tutti i partecipanti per avere un ordine causale
 int highestBid = 0                                      //segna il valore dell'offerta più alta attuale
 int winnerNodeId = -1                                   //id del vincitore dell'asta attuale
@@ -22,6 +35,9 @@ bool buttonPressed = false;                             //simulazione bottone in
 
 //Coda dei messaggi in attesa
 std::vector<struct_message> holdBackQueueSeq;           // Hold-back queue Sequenziatore
+std::vector<struct_message> holdBackQueuePart;          // Hold-back queue Partecipanti
+std::vector<struct_message> holdBackQueueOrder;         // Hold-back queue messaggi di ordinamento da parte del sequenziatore
+std::vector<struct_message> holdBackQueueCausal;        // Hold-back queue Deliver
 
 
 // Struttura per messaggi
@@ -58,10 +74,30 @@ void OnDataSent(const uint8_t *mac_addr, esp_now_send_status_t status) {
 void onDataReceive(const uint8_t *mac, const uint8_t *incomingData, int len){
     memcpy(&auctionMessageToReceive, incomingData, sizeof(auctionMessageToReceive));
 
-    holdBackQueueSeq.push_back(auctionMessageToReceive);                              // Aggiungi il messaggio alla hold-back queue
-    Serial.println("Messaggio aggiunto alla hold-back queue.");
-    causalControl(auctionMessageToReceive);                                           // Controllo la causalità
+    // Se sono il sequenziatore faccio una receive diversa
+    if(myMacAddress == mac_sequencer){
+      holdBackQueueSeq.push_back(auctionMessageToReceive);                              // Aggiungi il messaggio alla hold-back queue
+      Serial.println("Messaggio aggiunto alla hold-back queue.");
+      causalControl(auctionMessageToReceive);                                           // Controllo la causalità    
+    }else{
 
+      if(auctionMessageToReceive.messageType == "bid"){                                 // Se il messaggio è di tipo "bid"
+
+        holdBackQueuePart.push_back(auctionMessageToReceive);                              // Aggiungi il messaggio alla hold-back queue
+        Serial.println("Messaggio aggiunto alla hold-back queue.");
+        causalControlPartecipant(auctionMessageToReceive);
+
+      }else if(auctionMessageToReceive.messageType == "order"){
+        if(auctionMessageToReceive.sequenceNum == sequenceNumber && checkCorrispondence(auctionMessageToReceive)){
+                                      
+          TO_Deliver(auctionMessageToReceive);
+        }else{
+          holdBackQueueOrder.push_back(auctionMessageToReceive);  
+          Serial.println("Messaggio aggiunto alla hold-back queue.");
+        } 
+      }
+
+    }
 }
 
 /**********************FUNZIONE DI SETUP**************************************/
@@ -69,6 +105,11 @@ void setup() {
 
   Serial.begin(115200);
   Wifi.mode(WIFI_STA);
+
+  myMacAddress = WiFi.macAddress();
+  Serial.println("MAC Address: " + macAddress);
+
+  myNodeId = macToNumberMap[my_mac_address];                                        // Assegno l'id del nodo in base al MAC address
 
 
   if (esp_now_init() != ESP_OK) {                                                   // Se la connesione esp non è andata a buon fine
@@ -107,6 +148,15 @@ void loop() {
 
 }
 
+bool checkCorrispondence(struct_message messageToCheck){
+  for (int i=0; i<holdBackQueueCausal.size(); i++) {
+     if (messageToCheck.messageId == holdBackQueueCausal[i].messageId && messageToCheck.senderId == holdBackQueueCausal[i].senderId) {
+       return true;
+     }  
+    }
+  return false;
+}
+
 bool causalControl(struct_message messageToCheck){
   if((messageToCheck.vectorClock[messageToCheck.senderId] == vectorClock[messageToCheck.senderId] + 1) && isCausallyRead(messageToCheck)){
     holdBackQueueSeq.pop_back();                                                  // Rimuovo il messaggio dalla coda
@@ -116,11 +166,60 @@ bool causalControl(struct_message messageToCheck){
   return false;
 }
 
+bool causalControlPartecipant(struct_message messageToCheck){
+  if((messageToCheck.vectorClock[messageToCheck.senderId] == vectorClock[messageToCheck.senderId] + 1) && isCausallyRead(messageToCheck)){
+    holdBackQueuePart.pop_back();                                                  // Rimuovo il messaggio dalla coda
+    holdBackQueueCausal.push_back(messageToCheck);                                                  // Invio il messaggio al livello superiore
+    CO_DeliverPartecipant(messageToCheck);
+    // FAI PARTIRE L'ORDER DELIVER
+    if(messageToCheck.sequenceNum == sequenceNumber && checkCorrispondence(messageToCheck)){                                
+      TO_Deliver(messageToCheck);
+    }
+    return true;
+  }
+  return false;
+}
+
+void CO_DeliverPartecipant(struct_message message){
+  vectorClock[messageToCheck.senderId]++;
+  retrieveMessagePartecipant();
+}
+
 void CO_Deliver(struct_message message){
   auctionMessageToSend = message;
   vectorClock[messageToCheck.senderId]++;
   sendSequencer(message);
   retrieveMessage();
+}
+
+void TO_Deliver(struct_message message){
+  auctionMessageToDeliver = message; 
+  idToDelete = message.messageId;
+
+  //elimino in entrambe le code, sia di ordinamento che in quella causale
+  holdBackQueueOrder.pop_back();
+  for (int i=0; i<holdBackQueueCausal.size(); i++) {
+    if (idToDelete == holdBackQueueCausal[i].messageId) {
+      holdBackQueueCausal.pop_back();
+    }
+  }
+
+  //aggiorno il sequence number
+  sequenceNumber++;
+  Serial.println("Messaggio consegnato");
+  Serial.println("Bid offerta " + String(auctionMessageToDeliver.bid) + "da parte di " + String(auctionMessageToDeliver.senderId));
+
+} 
+
+void retrieveMessagePartecipant(){
+  for (auto it = holdBackQueuePart.begin(); it != holdBackQueuePart.end(); ) {
+        struct_message msg = *it;
+        if(causalControlPartecipant(msg)){
+            Serial.println("Messaggio recuperato");
+        } else {
+            ++it;
+        }
+    }
 }
 
 void retrieveMessage(){
