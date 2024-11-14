@@ -5,7 +5,7 @@
 #include <vector>
 #include <map>
 
-#define DURATION_TIME 10000
+#define DURATION_TIME 60000
 #define NUM_NODES 5
 
 // Indirizzo di broadcast per inviare a tutti i nodi
@@ -73,7 +73,7 @@ void onDataReceive(const uint8_t *mac, const uint8_t *incomingData, int len){
     // Se sono il sequenziatore faccio una receive diversa
     if(myMacAddress == mac_sequencer){
       holdBackQueueSeq.push_back(auctionMessageToReceive);                              // Aggiungi il messaggio alla hold-back queue
-      Serial.println("[Sequencer] Messaggio aggiunto alla holdBackQueue con:")
+      Serial.println("[Sequencer] Messaggio aggiunto alla holdBackQueue con:");
       Serial.println("SenderId: "+String(auctionMessageToReceive.senderId));
       Serial.println("MessageId: "+String(auctionMessageToReceive.messageId));
       Serial.println("Bid: "+String(auctionMessageToReceive.bid));
@@ -107,7 +107,7 @@ void onDataReceive(const uint8_t *mac, const uint8_t *incomingData, int len){
         Serial.println("[Partecipant] Arrivato un messaggio di ordinamento");
         Serial.println("SenderId: "+String(auctionMessageToReceive.senderId));
         Serial.println("MessageId: "+String(auctionMessageToReceive.messageId));
-        Serial.println("Sequence Number: "+String(auctionMessageToReceive.sequenceNumber));
+        Serial.println("Sequence Number: "+String(auctionMessageToReceive.sequenceNum));
         if(auctionMessageToReceive.sequenceNum == sequenceNumber && checkCorrispondence(auctionMessageToReceive)){
                                       
           TO_Deliver(auctionMessageToReceive);
@@ -133,8 +133,8 @@ bool checkCorrispondence(struct_message messageToCheck){
 
 bool causalControl(struct_message messageToCheck){
   if((messageToCheck.vectorClock[messageToCheck.senderId] == vectorClock[messageToCheck.senderId] + 1) && isCausallyRead(messageToCheck)){
-    holdBackQueueSeq.pop_back();                                                  // Rimuovo il messaggio dalla coda
-    CO_Deliver(messageToCheck);                                                   // Invio il messaggio al livello superiore
+    holdBackQueueSeq.pop_back();                                                                  // Rimuovo il messaggio dalla coda
+    CO_Deliver(messageToCheck);                                                                   // Invio il messaggio al livello superiore
     return true;
   }
   return false;
@@ -240,6 +240,15 @@ void sendBid(){
 
   esp_err_t result = esp_now_send(broadcastAddress, (uint8_t *) &auctionMessageToSend, sizeof(auctionMessageToSend));
 
+  // Quando invio un'offerta me la registro nella coda
+  // Come se inviassi il messaggio a me stesso
+  if(myMacAddress == mac_sequencer){
+    holdBackQueueSeq.push_back(auctionMessageToSend);                                 // Se sono il sequenziatore pusho nella mia coda 
+  }else{
+    holdBackQueuePart.push_back(auctionMessageToSend);                                // Se sono un partecipante generico, pusho nella coda partecipanti
+  }
+
+
   if (result == ESP_OK) {
       Serial.println("[Partecipante] Messaggio inviato con successo con bid: "+String(auctionMessageToSend.bid)+"da "+String(auctionMessageToSend.senderId));
   } else {
@@ -266,7 +275,7 @@ void checkEndAuction(){
   if(millis() - restartTimer >= DURATION_TIME){                                    // Se il tempo attuale (millis()) meno il tempo di inizio asta (restartTimer) è maggiore di Duration
     auctionStarted = false;                                                        // L'asta è finita, tutti a casa, LUKAKU è mio!!
     Serial.println("Ha vinto il nodo " + String(winnerNodeId));                      // Annuncio il vincitore
-    Serial.println("con un offerta di " + highestBid);
+    Serial.println("con un offerta di " + String(highestBid));
   }
 
 }
