@@ -62,7 +62,79 @@ void startAuction(){
 
 // Callback invio dati
 void OnDataSent(const uint8_t *mac_addr, esp_now_send_status_t status) {
-    Serial.print("\r\nLast Packet Send Status:\t");
+  // Quando invio un'offerta me la registro nella coda
+  // Come se inviassi il messaggio a me stesso
+
+  //------- DA CAPIRE SE SERVE, SE FACCIO RECEIVE SU I MIEI INVI QUESTO CODICE NON SERVE-----------
+  
+  if(myMacAddress == mac_sequencer){
+    holdBackQueueSeq.push_back(auctionMessageToSend);                                 // Se sono il sequenziatore pusho nella mia coda 
+    Serial.println("[Sequencer] Messaggio aggiunto alla holdBackQueue con:");
+      Serial.println("SenderId: "+String(auctionMessageToSend.senderId));
+      Serial.println("MessageId: "+String(auctionMessageToSend.messageId));
+      Serial.println("Bid: "+String(auctionMessageToSend.bid));
+      // Stampa il vector clock
+      Serial.print("Vector Clock: [ ");
+      for (int i = 0; i < NUM_NODES; i++) { // Usa NUM_NODES per la dimensione dinamica
+        Serial.print(auctionMessageToSend.vectorClock[i]);
+        if (i < NUM_NODES - 1) Serial.print(", "); // Aggiungi virgola tra i valori, ma non alla fine
+      }
+      Serial.println(" ]");
+
+      bool checkPopSeq = false;
+        do{
+          Serial.println("[Sequencer] Nella mia coda ho "+String(holdBackQueueSeq.size())+" messaggi");
+          checkPopSeq = false;
+          for (auto it = holdBackQueueSeq.rbegin(); it != holdBackQueueSeq.rend(); ){
+            // Faccio il controllo per il messaggio in coda, ultimo posto (se è arrivato un messaggio è quello in ultima posizione)
+            checkPopSeq = causalControl(*it,it);
+            Serial.println("[Sequencer] checkPopSeq: "+String(checkPopSeq));  
+            if(checkPopSeq){ // se ho sbloccato un messaggio...
+              Serial.println("[Sequencer] Il pop era true, ricomnicio il ciclo");  
+              break;      // esco dal ciclo per ricominciare dalla fine della coda
+            }
+            ++it;           // Incremento l'iteratore per scorrere la coda
+          }
+        }while(checkPopSeq); 
+
+  }else{
+    holdBackQueuePart.push_back(auctionMessageToSend);                                // Se sono un partecipante generico, pusho nella coda partecipanti
+    holdBackQueuePart.push_back(auctionMessageToReceive);                              // Aggiungi il messaggio alla hold-back queue
+        Serial.println("[Partecipant] Messaggio aggiunto alla hold-back queue con:");
+        Serial.println("SenderId: "+String(auctionMessageToSend.senderId));
+        Serial.println("MessageId: "+String(auctionMessageToSend.messageId));
+        Serial.println("Bid: "+String(auctionMessageToSend.bid));
+        // Stampa il vector clock
+        Serial.print("Vector Clock: [ ");
+        for (int i = 0; i < NUM_NODES; i++) { // Usa NUM_NODES per la dimensione dinamica
+          Serial.print(auctionMessageToSend.vectorClock[i]);
+          if (i < NUM_NODES - 1) Serial.print(", "); // Aggiungi virgola tra i valori, ma non alla fine
+        }
+        Serial.println(" ]");
+
+        // Quando mi arriva un messaggio controllo tutta la coda
+        // Così a partire dall'ultimo vedo se è causale, e se il suo invio mi ha "sbloccato" altri in coda
+
+        bool checkPopPart = false;
+        do{
+          Serial.println("[Partecipant] Nella mia coda ho "+String(holdBackQueuePart.size())+" messaggi");
+          checkPopPart = false;
+          for (auto it = holdBackQueuePart.rbegin(); it != holdBackQueuePart.rend(); ){
+            // Faccio il controllo per il messaggio in coda, ultimo posto (se è arrivato un messaggio è quello in ultima posizione)
+            checkPopPart = causalControlPartecipant(*it,it);
+            Serial.println("[Partecipant] checkPopSeq: "+String(checkPopPart));  
+            if(checkPopPart){ // se ho sbloccato un messaggio...
+              Serial.println("[Partecipant] Il pop era true, ricomnicio il ciclo"); 
+              break;      // esco dal ciclo per ricominciare dalla fine della coda
+            }
+            ++it;           // Incremento l'iteratore per scorrere la coda  
+          }
+        }while(checkPopPart);
+  }
+
+  //--------------ELIMINARE SE NON SERVE--------------------------------------------------------------------
+
+    Serial.println("\r\nLast Packet Send Status:\t");
     Serial.println(status == ESP_NOW_SEND_SUCCESS ? "Success" : "Failed");
 }
 
@@ -84,7 +156,23 @@ void onDataReceive(const uint8_t *mac, const uint8_t *incomingData, int len){
         if (i < NUM_NODES - 1) Serial.print(", "); // Aggiungi virgola tra i valori, ma non alla fine
       }
       Serial.println(" ]");
-      causalControl(auctionMessageToReceive);                                           // Controllo la causalità    
+
+      bool checkPopSeq = false;
+        do{
+          Serial.println("[Sequencer] Nella mia coda ho "+String(holdBackQueueSeq.size())+" messaggi");
+          checkPopSeq = false;
+          for (auto it = holdBackQueueSeq.rbegin(); it != holdBackQueueSeq.rend(); ){
+            // Faccio il controllo per il messaggio in coda, ultimo posto (se è arrivato un messaggio è quello in ultima posizione)
+            checkPopSeq = causalControl(*it,it);
+            Serial.println("[Sequencer] checkPopSeq: "+String(checkPopSeq));  
+            if(checkPopSeq){ // se ho sbloccato un messaggio...
+              Serial.println("[Sequencer] Il pop era true, ricomnicio il ciclo");  
+              break;      // esco dal ciclo per ricominciare dalla fine della coda
+            }
+            ++it;           // Incremento l'iteratore per scorrere la coda
+          }
+        }while(checkPopSeq); 
+
     }else{
 
       if(auctionMessageToReceive.messageType == "bid"){                                 // Se il messaggio è di tipo "bid"
@@ -101,14 +189,34 @@ void onDataReceive(const uint8_t *mac, const uint8_t *incomingData, int len){
           if (i < NUM_NODES - 1) Serial.print(", "); // Aggiungi virgola tra i valori, ma non alla fine
         }
         Serial.println(" ]");
-        causalControlPartecipant(auctionMessageToReceive);
+
+        // Quando mi arriva un messaggio controllo tutta la coda
+        // Così a partire dall'ultimo vedo se è causale, e se il suo invio mi ha "sbloccato" altri in coda
+        // Inoltre se durante il controllo faccio un erase di un messaggio causale, mi conviene ricominciare il ciclo
+        // infatti è possibile che quelli dietro adesso siano causali e quindi sbloccabili
+
+        bool checkPopPart = false;
+        do{
+          Serial.println("[Partecipant] Nella mia coda ho "+String(holdBackQueuePart.size())+" messaggi");
+          checkPopPart = false;
+          for (auto it = holdBackQueuePart.rbegin(); it != holdBackQueuePart.rend(); ){
+            // Faccio il controllo per il messaggio in coda, ultimo posto (se è arrivato un messaggio è quello in ultima posizione)
+            checkPopPart = causalControlPartecipant(*it,it); // Passo sia il messaggio con l'iteratore che l'iteratore stesso
+            Serial.println("[Partecipant] checkPopSeq: "+String(checkPopPart));
+            if(checkPopPart){ // se ho sbloccato un messaggio...
+              Serial.println("[Partecipant] Il pop era true, ricomnicio il ciclo");  
+              break;      // esco dal ciclo per ricominciare dalla fine della coda
+            }
+            ++it;           // Incremento l'iteratore per scorrere la coda  
+          }
+        }while(checkPopPart); 
 
       }else if(auctionMessageToReceive.messageType == "order"){
         Serial.println("[Partecipant] Arrivato un messaggio di ordinamento");
         Serial.println("SenderId: "+String(auctionMessageToReceive.senderId));
         Serial.println("MessageId: "+String(auctionMessageToReceive.messageId));
         Serial.println("Sequence Number: "+String(auctionMessageToReceive.sequenceNum));
-        if(auctionMessageToReceive.sequenceNum == sequenceNumber && checkCorrispondence(auctionMessageToReceive)){
+        if(checkCorrispondence(auctionMessageToReceive)){
                                       
           TO_Deliver(auctionMessageToReceive);
           Serial.println("[Partecipant] Ho fatto la TO Deliver");
@@ -122,31 +230,48 @@ void onDataReceive(const uint8_t *mac, const uint8_t *incomingData, int len){
 }
 
 
+// DA RENDERE POLIMORFA 
+// Quando arriva un messaggio di ordinamento, devo controllare se c'è il corrispettivo nella holdBackQueueCausal
+// Quando arriva un messaggio causale di cui ho fatto CO-Deliver, devo controllare se c'è il corrispettivo nella holdBackQueueOrder
 bool checkCorrispondence(struct_message messageToCheck){
-  for (int i=0; i<holdBackQueueCausal.size(); i++) {
-     if (messageToCheck.messageId == holdBackQueueCausal[i].messageId && messageToCheck.senderId == holdBackQueueCausal[i].senderId) {
+  Serial.println("[Partecipant] Controllo corrispondenza tra i messaggi");
+  Serial.println("[Partecipant] La coda di attesa di ordinamento ha "+String(holdBackQueueOrder.size())+" messaggi");
+
+  try{
+  for (int i=0; i<holdBackQueueOrder.size(); i++) {
+     if (messageToCheck.messageId == holdBackQueueOrder[i].messageId && messageToCheck.senderId == holdBackQueueOrder[i].senderId && sequenceNumber == holdBackQueueOrder[i].sequenceNum ) {
        return true;
      }  
     }
   return false;
+  }catch(const std::out_of_range& e){
+    Serial.println("[Partecipant] Errore nella funzione checkCorrispondence");
+  } 
 }
 
-bool causalControl(struct_message messageToCheck){
+bool causalControl(struct_message messageToCheck, std::vector<struct_message>::reverse_iterator it){
   if((messageToCheck.vectorClock[messageToCheck.senderId] == vectorClock[messageToCheck.senderId] + 1) && isCausallyRead(messageToCheck)){
-    holdBackQueueSeq.pop_back();                                                                  // Rimuovo il messaggio dalla coda
+    Serial.println("[Sequencer] Messaggio causale da parte di "+String(messageToCheck.senderId)+" con offerta "+String(messageToCheck.bid)+" sbloccato");
+    holdBackQueueSeq.erase(it.base());                                                                  // Rimuovo il messaggio dalla coda
+    Serial.println("[Sequencer] Ho eliminato questo messaggio causale");
     CO_Deliver(messageToCheck);                                                                   // Invio il messaggio al livello superiore
     return true;
   }
   return false;
 }
 
-bool causalControlPartecipant(struct_message messageToCheck){
+bool causalControlPartecipant(struct_message messageToCheck, std::vector<struct_message>::reverse_iterator it){
   if((messageToCheck.vectorClock[messageToCheck.senderId] == vectorClock[messageToCheck.senderId] + 1) && isCausallyRead(messageToCheck)){
-    holdBackQueuePart.pop_back();                                                  // Rimuovo il messaggio dalla coda
-    holdBackQueueCausal.push_back(messageToCheck);                                                  // Invio il messaggio al livello superiore
+  Serial.println("[Partecipant] Messaggio causale da parte di "+String(messageToCheck.senderId)+" con offerta "+String(messageToCheck.bid)+" sbloccato");
+    holdBackQueuePart.erase(it.base());                                                                 // Rimuovo il messaggio dalla coda
+    Serial.println("[Partecipant] Ho eliminato questo messaggio causale");
+    holdBackQueueCausal.push_back(messageToCheck);                                                // Invio il messaggio al livello superiore
+    Serial.println("[Partecipant] Ho aggiunto il messaggio alla seconda coda di attesa, aspetto mess di ordinamento"); 
     CO_DeliverPartecipant(messageToCheck);
+    Serial.println("[Partecipant] Ho fatto CO Deliver, aggiornato il vector clock");
     // FAI PARTIRE L'ORDER DELIVER
-    if(messageToCheck.sequenceNum == sequenceNumber && checkCorrispondence(messageToCheck)){                                
+    if(checkCorrispondence(messageToCheck)){  
+      Serial.println("[Partecipant] ho ordinamento e causale, posso fare la TO Deliver");                              
       TO_Deliver(messageToCheck);
     }
     return true;
@@ -156,57 +281,39 @@ bool causalControlPartecipant(struct_message messageToCheck){
 
 void CO_DeliverPartecipant(struct_message message){
   vectorClock[message.senderId]++;
-  retrieveMessagePartecipant();
 }
 
+// CO-Deliver del sequenziatore [SEQUENZIATORE]
 void CO_Deliver(struct_message message){
-  auctionMessageToSend = message;
-  vectorClock[message.senderId]++;
-  sendSequencer(message);
-  retrieveMessage();
+  auctionMessageToSend = message;                 // Oltre ad aggiornare il vector clock, devo anche inviare a tutti un mess di ordinamento
+  vectorClock[message.senderId]++;                // Aggiorno il vector clock alla mia posizione
+  sendSequencer(message);                         // Invio il messaggio di ordinamento                        
 }
 
 void TO_Deliver(struct_message message){
   auctionMessageToReceive = message; 
   int idToDelete = message.messageId;
+  int senderIdToDelete = message.senderId;
 
   //elimino in entrambe le code, sia di ordinamento che in quella causale
-  holdBackQueueOrder.pop_back();
-  for (int i=0; i<holdBackQueueCausal.size(); i++) {
-    if (idToDelete == holdBackQueueCausal[i].messageId) {
-      holdBackQueueCausal.pop_back();
+  for(int i=0; i<holdBackQueueOrder.size(); i++){
+    if(holdBackQueueOrder[i].messageId == idToDelete && holdBackQueueOrder[i].senderId == senderIdToDelete){
+      holdBackQueueOrder.erase(holdBackQueueOrder.begin()+i);
+    }
+  }
+
+  for(int i=0; i<holdBackQueueCausal.size(); i++){
+    if(holdBackQueueCausal[i].messageId == idToDelete && holdBackQueueCausal[i].senderId == senderIdToDelete){
+      holdBackQueueCausal.erase(holdBackQueueCausal.begin()+i);
     }
   }
 
   //aggiorno il sequence number
   sequenceNumber++;
-  Serial.println("Messaggio consegnato");
-  Serial.println("Bid offerta " + String(auctionMessageToReceive.bid) + "da parte di " + String(auctionMessageToReceive.senderId));
+  Serial.println("[Partecipant] Messaggio consegnato");
+  Serial.println("[Partecipant] Bid offerta " + String(auctionMessageToReceive.bid) + "da parte di " + String(auctionMessageToReceive.senderId));
 
 } 
-
-void retrieveMessagePartecipant(){
-  for (auto it = holdBackQueuePart.begin(); it != holdBackQueuePart.end(); ) {
-        struct_message msg = *it;
-        if(causalControlPartecipant(msg)){
-            Serial.println("Messaggio recuperato");
-        } else {
-            ++it;
-        }
-    }
-}
-
-void retrieveMessage(){
-  for (auto it = holdBackQueueSeq.begin(); it != holdBackQueueSeq.end(); ) {
-        struct_message msg = *it;
-        if(causalControl(msg)){
-            Serial.println("Messaggio recuperato");
-        } else {
-            ++it;
-        }
-    }
-}
-
 
 void sendSequencer(struct_message message) {
 
@@ -240,17 +347,10 @@ void sendBid(){
 
   esp_err_t result = esp_now_send(broadcastAddress, (uint8_t *) &auctionMessageToSend, sizeof(auctionMessageToSend));
 
-  // Quando invio un'offerta me la registro nella coda
-  // Come se inviassi il messaggio a me stesso
-  if(myMacAddress == mac_sequencer){
-    holdBackQueueSeq.push_back(auctionMessageToSend);                                 // Se sono il sequenziatore pusho nella mia coda 
-  }else{
-    holdBackQueuePart.push_back(auctionMessageToSend);                                // Se sono un partecipante generico, pusho nella coda partecipanti
-  }
-
+  
 
   if (result == ESP_OK) {
-      Serial.println("[Partecipante] Messaggio inviato con successo con bid: "+String(auctionMessageToSend.bid)+"da "+String(auctionMessageToSend.senderId));
+      Serial.println("[Partecipante] Messaggio inviato con successo con bid: "+String(auctionMessageToSend.bid)+" da "+String(auctionMessageToSend.senderId));
   } else {
       Serial.println("[Partecipante] Errore nell'invio del messaggio da parte di "+String(auctionMessageToSend.senderId));
   } 
@@ -321,7 +421,7 @@ void setup() {
 
   buttonPressed = true;                                                             //sto simulando l'inizio di una sola asta
   buttonBid = true;                                                                 //sto simulando l'offerta di un solo nodo
-  delay(10000);
+  delay(5000);
 
 }
 
@@ -346,7 +446,7 @@ void loop() {
 
       // #########FARE DEBOUNCER##########
       buttonBid = false;
-      delay(5000);
+      delay(3000);
       sendBid();                                                                      // invio l'offerta
 
     }
