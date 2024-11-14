@@ -3,6 +3,7 @@
 #include <esp_now.h>
 #include <WiFi.h>
 #include <vector>
+#include <map>
 
 #define DURATION_TIME 10000
 #define NUM_NODES 5
@@ -12,37 +13,25 @@ uint8_t broadcastAddress[] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
 String mac_sequencer = "ac:15:18:e9:9f:4c";
 
 // Crea la mappa per associare MAC address a numeri da 0 a 4
-std::map<std::string, int> macToNumberMap;
-
-// Aggiungi alcune associazioni MAC address -> numero
-macToNumberMap["ac:15:18:e9:9f:4c"] = 0;
-macToNumberMap["f8:b3:b7:2c:71:80"] = 1;
-macToNumberMap["4c:11:ae:65:af:08"] = 2;
-macToNumberMap["f8:b3:b7:2c:71:80"] = 3;
-macToNumberMap["f8:b3:b7:2c:71:80"] = 4;
+std::map<String, int> macToNumberMap;
 
 // Parametri asta e variabili globali
 int sequenceNumber = 0;                                 //serve al sequenziatore per impartire l'ordine totale
 int myNodeId = 0;                                       //id del nodo
 String myMacAddress = "";
 int vectorClock[NUM_NODES] = {0,0,0,0,0};               //serve a tutti i partecipanti per avere un ordine causale
-int highestBid = 0                                      //segna il valore dell'offerta più alta attuale
-int winnerNodeId = -1                                   //id del vincitore dell'asta attuale
+int highestBid = 0;                                      //segna il valore dell'offerta più alta attuale
+int winnerNodeId = -1;                                   //id del vincitore dell'asta attuale
 unsigned long auctionEndTime = 0;                       //tempo di fine asta
 unsigned long restartTimer = 0;                         // con la funzione millis() aggiorno ogni volta quando mi arriva un offerta, mi serve per implementare un timer
 bool auctionStarted = false;                            // Flag per tracciare se l'asta è partita
 bool buttonPressed = false;                             //simulazione bottone inizio asta
-
-//Coda dei messaggi in attesa
-std::vector<struct_message> holdBackQueueSeq;           // Hold-back queue Sequenziatore
-std::vector<struct_message> holdBackQueuePart;          // Hold-back queue Partecipanti
-std::vector<struct_message> holdBackQueueOrder;         // Hold-back queue messaggi di ordinamento da parte del sequenziatore
-std::vector<struct_message> holdBackQueueCausal;        // Hold-back queue Deliver
-
+bool buttonBid = false;                                 //simulazione bottone offerta
 
 // Struttura per messaggi
 typedef struct struct_message {
     int bid;                                            //bid dell'offerta nel messaggio
+    int highestBid;                                     //offerta più alta attuale
     int messageId;                                      //id del messaggio, utile per riconoscere i messaggi in fase di ricezione
     int senderId;                                       //id del mittente del messaggio
     int sequenceNum;                                    //sequence number associato al messaggio
@@ -50,9 +39,16 @@ typedef struct struct_message {
     String messageType;                                 //tipo di messaggio ("bid", "order")
 } struct_message;
 
+//Coda dei messaggi in attesa
+std::vector<struct_message> holdBackQueueSeq;           // Hold-back queue Sequenziatore
+std::vector<struct_message> holdBackQueuePart;          // Hold-back queue Partecipanti
+std::vector<struct_message> holdBackQueueOrder;         // Hold-back queue messaggi di ordinamento da parte del sequenziatore
+std::vector<struct_message> holdBackQueueCausal;        // Hold-back queue Deliver
+
 struct_message auctionMessageToSend;                    //Messaggio da inviare
 struct_message auctionMessageToReceive;                 //Messaggio ricevuto
 
+esp_now_peer_info_t peerInfo; // Aggiunta dichiarazione della variabile peerInfo
 
 // Funzione per iniziare l'asta
 void startAuction(){
@@ -60,7 +56,7 @@ void startAuction(){
   winnerNodeId = -1;
   sequenceNumber = 0;
   auctionStarted = true;                                                            // metto a true l'inizio dell'asta
-  restartTimer = millis()                                                           // leggo e salvo il tempo di inizio asta
+  restartTimer = millis();                                                           // leggo e salvo il tempo di inizio asta
   auctionEndTime = DURATION_TIME;
 }
 
@@ -103,13 +99,22 @@ void onDataReceive(const uint8_t *mac, const uint8_t *incomingData, int len){
 /**********************FUNZIONE DI SETUP**************************************/
 void setup() {
 
+  
+  // Aggiungi alcune associazioni MAC address -> numero
+  macToNumberMap["ac:15:18:e9:9f:4c"] = 0;
+  macToNumberMap["f8:b3:b7:2c:71:80"] = 1;
+  macToNumberMap["4c:11:ae:65:af:08"] = 2;
+  macToNumberMap["f8:b3:b7:2c:71:80"] = 3;
+  macToNumberMap["f8:b3:b7:2c:71:80"] = 4;
+
+
   Serial.begin(115200);
-  Wifi.mode(WIFI_STA);
+  WiFi.mode(WIFI_STA);
 
   myMacAddress = WiFi.macAddress();
-  Serial.println("MAC Address: " + macAddress);
+  Serial.println("MAC Address: " + myMacAddress);
 
-  myNodeId = macToNumberMap[my_mac_address];                                        // Assegno l'id del nodo in base al MAC address
+  myNodeId = macToNumberMap[myMacAddress];                                        // Assegno l'id del nodo in base al MAC address
 
 
   if (esp_now_init() != ESP_OK) {                                                   // Se la connesione esp non è andata a buon fine
@@ -128,9 +133,10 @@ void setup() {
         return;
   }
 
-  esp_now_register_recv_cb(OnDataRecv);                                             // registro la funzione "OnDataRecv()" come funzione di callback alla ricezione di un messagio
+  esp_now_register_recv_cb(esp_now_recv_cb_t(onDataReceive));                                             // registro la funzione "OnDataRecv()" come funzione di callback alla ricezione di un messagio
 
   buttonPressed = true;                                                             //sto simulando l'inizio di una sola asta
+  buttonBid = true;                                                                 //sto simulando l'offerta di un solo nodo
 
 }
 
@@ -142,8 +148,23 @@ void loop() {
     startAuction();                                                                  // setto le variabili iniziali, tra cui la variabile che segna l'inizio dell'asta
   }
 
+  // Tutti se l'asta è iniziata
   if(auctionStarted){                                                               // finchè l'asta non è finita
-    checkEndAuction();                                                              // controllo se l'asta è finita
+    
+    //parte sequeziatore
+    if(myMacAddress == mac_sequencer){      
+      checkEndAuction();                                                              // controllo se l'asta è finita
+    }
+
+    // Se bottone premuto per fare offerta
+    if(buttonBid){
+
+      // #########FARE DEBOUNCER##########
+      buttonBid = false;
+      sendBid();                                                                      // invio l'offerta
+
+    }
+
   }
 
 }
@@ -181,20 +202,20 @@ bool causalControlPartecipant(struct_message messageToCheck){
 }
 
 void CO_DeliverPartecipant(struct_message message){
-  vectorClock[messageToCheck.senderId]++;
+  vectorClock[message.senderId]++;
   retrieveMessagePartecipant();
 }
 
 void CO_Deliver(struct_message message){
   auctionMessageToSend = message;
-  vectorClock[messageToCheck.senderId]++;
+  vectorClock[message.senderId]++;
   sendSequencer(message);
   retrieveMessage();
 }
 
 void TO_Deliver(struct_message message){
-  auctionMessageToDeliver = message; 
-  idToDelete = message.messageId;
+  auctionMessageToReceive = message; 
+  int idToDelete = message.messageId;
 
   //elimino in entrambe le code, sia di ordinamento che in quella causale
   holdBackQueueOrder.pop_back();
@@ -207,7 +228,7 @@ void TO_Deliver(struct_message message){
   //aggiorno il sequence number
   sequenceNumber++;
   Serial.println("Messaggio consegnato");
-  Serial.println("Bid offerta " + String(auctionMessageToDeliver.bid) + "da parte di " + String(auctionMessageToDeliver.senderId));
+  Serial.println("Bid offerta " + String(auctionMessageToReceive.bid) + "da parte di " + String(auctionMessageToReceive.senderId));
 
 } 
 
@@ -242,17 +263,36 @@ void sendSequencer(struct_message message) {
     if(message.bid > highestBid){                                      // Se la bid che ho prelevato è più grande...
       highestBid = message.bid;                                        // Aggiorno l'offerta più alta la momento
       winnerNodeId = message.senderId;                                 // e il vincitore momentaneo
+      message.highestBid = highestBid;                                 // Aggiorno il messaggio con l'offerta più alta
     }
     esp_err_t result = esp_now_send(broadcastAddress, (uint8_t *) &message, sizeof(message));
-    message.sequenceNumber = sequenceNumber++;
+    message.sequenceNum = sequenceNumber++;
 
     restartTimer = millis();                                                // Aggiorno il timer di restart
 
     if (result == ESP_OK) {
-        Serial.println("Messaggio inviato con successo");
+        Serial.println("Offerta inviata di " + String(message.bid) + " da parte di " + String(message.senderId));
     } else {
-        Serial.println("Errore nell'invio del messaggio");
+        Serial.println("Errore nell'invio dell'offerta");
     }
+}
+
+void sendBid(){
+
+  auctionMessageToSend.bid = highestBid+1;                                              // Setto il valore dell'offerta
+  auctionMessageToSend.senderId = myNodeId;                                              // Setto il mittente
+  auctionMessageToSend.messageId = auctionMessageToSend.messageId+1;                                     // 
+  auctionMessageToSend.vectorClock[myNodeId] = vectorClock[myNodeId] + 1;                          
+  auctionMessageToSend.messageType = "bid";
+
+  esp_err_t result = esp_now_send(broadcastAddress, (uint8_t *) &auctionMessageToSend, sizeof(auctionMessageToSend));
+
+  if (result == ESP_OK) {
+      Serial.println("Messaggio inviato con successo");
+  } else {
+      Serial.println("Errore nell'invio del messaggio");
+  } 
+
 }
 
 bool isCausallyRead(struct_message messageToCheck){
