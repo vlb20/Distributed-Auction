@@ -54,7 +54,7 @@ void startAuction(){
   winnerNodeId = -1;
   sequenceNumber = 0;
   auctionStarted = true;                                                            // metto a true l'inizio dell'asta
-  restartTimer = millis()                                                           // leggo e salvo il tempo di inizio asta
+  restartTimer = millis();                                                           // leggo e salvo il tempo di inizio asta
   auctionEndTime = DURATION_TIME;
 }
 
@@ -83,7 +83,7 @@ void OnDataSent(const uint8_t *mac_addr, esp_now_send_status_t status) {
 
     processHoldBackQueue(holdBackQueueSeq, true); // Controllo la coda di messaggi
 
-  }else{
+  }else if(myMacAddress != mac_sequencer){
     holdBackQueuePart.push_back(auctionMessageToSend);                                // Se sono un partecipante generico, pusho nella coda partecipanti
     Serial.println("[Partecipant] Messaggio aggiunto alla hold-back queue con:");
     Serial.println("SenderId: "+String(auctionMessageToSend.senderId));
@@ -161,7 +161,7 @@ void onDataReceive(const uint8_t *mac, const uint8_t *incomingData, int len){
         Serial.println("MessageId: "+String(auctionMessageToReceive.messageId));
         Serial.println("Sequence Number: "+String(auctionMessageToReceive.sequenceNum));
 
-        if(checkCorrispondence(auctionMessageToReceive)){
+        if(checkCorrispondence(auctionMessageToReceive,"fromOrderToCausal")){
 
           TO_Deliver(auctionMessageToReceive);
           Serial.println("[Partecipant] Ho fatto la TO Deliver");
@@ -205,19 +205,36 @@ bool processHoldBackQueue(std::vector<struct_message> &holdBackQueue, bool isSeq
 // DA RENDERE POLIMORFA
 // Quando arriva un messaggio di ordinamento, devo controllare se c'è il corrispettivo nella holdBackQueueCausal
 // Quando arriva un messaggio causale di cui ho fatto CO-Deliver, devo controllare se c'è il corrispettivo nella holdBackQueueOrder
-bool checkCorrispondence(struct_message messageToCheck){
-  Serial.println("[Partecipant] Controllo corrispondenza tra i messaggi");
-  Serial.println("[Partecipant] La coda di attesa di ordinamento ha "+String(holdBackQueueOrder.size())+" messaggi");
+bool checkCorrispondence(struct_message messageToCheck, String corrispondenceType){
 
-  try{
-  for (int i=0; i<holdBackQueueOrder.size(); i++) {
-     if (messageToCheck.messageId == holdBackQueueOrder[i].messageId && messageToCheck.senderId == holdBackQueueOrder[i].senderId && sequenceNumber == holdBackQueueOrder[i].sequenceNum ) {
-       return true;
-     }
+  if (corrispondenceType == "fromCausalToOrder"){
+    Serial.println("[Partecipant] Controllo corrispondenza tra i messaggi nella coda dei messaggi di Ordinamento");
+    Serial.println("[Partecipant] La coda di attesa di ordinamento ha "+String(holdBackQueueOrder.size())+" messaggi");
+
+    try{
+    for (int i=0; i<holdBackQueueOrder.size(); i++) {
+      if (messageToCheck.messageId == holdBackQueueOrder[i].messageId && messageToCheck.senderId == holdBackQueueOrder[i].senderId && sequenceNumber == holdBackQueueOrder[i].sequenceNum ) {
+        return true;
+      }
+      }
+    return false;
+    }catch(const std::out_of_range& e){
+      Serial.println("[Partecipant] Errore nella funzione checkCorrispondence");
     }
-  return false;
-  }catch(const std::out_of_range& e){
-    Serial.println("[Partecipant] Errore nella funzione checkCorrispondence");
+  }else if(corrispondenceType == "fromOrderToCausal"){
+    Serial.println("[Partecipant] Controllo corrispondenza tra i messaggi nella coda dei messaggi Causali");
+    Serial.println("[Partecipant] La coda di attesa dei causali ha "+String(holdBackQueueCausal.size())+" messaggi");
+
+    try{
+    for (int i=0; i<holdBackQueueCausal.size(); i++) {
+      if (messageToCheck.messageId == holdBackQueueCausal[i].messageId && messageToCheck.senderId == holdBackQueueCausal[i].senderId && sequenceNumber == holdBackQueueCausal[i].sequenceNum ) {
+        return true;
+      }
+      }
+    return false;
+    }catch(const std::out_of_range& e){
+      Serial.println("[Partecipant] Errore nella funzione checkCorrispondence");
+    }
   }
 }
 
@@ -232,7 +249,7 @@ bool causalControl(struct_message messageToCheck, std::vector<struct_message>::r
   return false;
 }
 
-bool causalControl(struct_message messageToCheck){ //TUTTI
+bool causalControlPartecipant(struct_message messageToCheck, std::vector<struct_message>::reverse_iterator it){ //TUTTI
   if((messageToCheck.vectorClock[messageToCheck.senderId] == vectorClock[messageToCheck.senderId] + 1) && isCausallyRead(messageToCheck)){
   Serial.println("[Partecipant] Messaggio causale da parte di "+String(messageToCheck.senderId)+" con offerta "+String(messageToCheck.bid)+" sbloccato");
     holdBackQueuePart.erase(it.base());                                                                 // Rimuovo il messaggio dalla coda
@@ -242,7 +259,7 @@ bool causalControl(struct_message messageToCheck){ //TUTTI
     CO_DeliverPartecipant(messageToCheck);
     Serial.println("[Partecipant] Ho fatto CO Deliver, aggiornato il vector clock");
     // FAI PARTIRE L'ORDER DELIVER
-    if(checkCorrispondence(messageToCheck)){
+    if(checkCorrispondence(messageToCheck,"fromCausalToOrder")){
       Serial.println("[Partecipant] ho ordinamento e causale, posso fare la TO Deliver");
       TO_Deliver(messageToCheck);
     }
@@ -287,8 +304,9 @@ void TO_Deliver(struct_message message){
 
 }
 
-void sendSequencer(struct_message auctionMessageToSend) {
+void sendSequencer(struct_message message) {
 
+    auctionMessageToSend = message;
     auctionMessageToSend.messageType = "order";                                             // Setto il tipo di messaggio
 
     // Controllo se la Highest Bid è cambiata
