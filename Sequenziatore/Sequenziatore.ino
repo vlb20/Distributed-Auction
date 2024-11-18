@@ -115,7 +115,8 @@ void onDataReceive(const uint8_t *mac, const uint8_t *incomingData, int len){
     // Se sono il sequenziatore faccio una receive diversa
     if(myMacAddress == mac_sequencer){
 
-    holdBackQueueSeq.push_back(auctionMessageToReceive);                              // Aggiungi il messaggio alla hold-back queue
+      holdBackQueueSeq.push_back(auctionMessageToReceive);                              // Aggiungi il messaggio alla hold-back queue
+
       Serial.println("[Sequencer] Messaggio aggiunto alla holdBackQueue con:");
       Serial.println("SenderId: "+String(auctionMessageToReceive.senderId));
       Serial.println("MessageId: "+String(auctionMessageToReceive.messageId));
@@ -128,21 +129,7 @@ void onDataReceive(const uint8_t *mac, const uint8_t *incomingData, int len){
       }
       Serial.println(" ]");
 
-      bool checkPopSeq = false;
-        do{
-          Serial.println("[Sequencer] Nella mia coda ho "+String(holdBackQueueSeq.size())+" messaggi");
-          checkPopSeq = false;
-          for (auto it = holdBackQueueSeq.rbegin(); it != holdBackQueueSeq.rend(); ){
-            // Faccio il controllo per il messaggio in coda, ultimo posto (se è arrivato un messaggio è quello in ultima posizione)
-            checkPopSeq = causalControl(*it,it);
-            Serial.println("[Sequencer] checkPopSeq: "+String(checkPopSeq));
-            if(checkPopSeq){ // se ho sbloccato un messaggio...
-              Serial.println("[Sequencer] Il pop era true, ricomnicio il ciclo");
-              break;      // esco dal ciclo per ricominciare dalla fine della coda
-            }
-            ++it;           // Incremento l'iteratore per scorrere la coda
-          }
-        }while(checkPopSeq);
+      processHoldBackQueue(holdBackQueueSeq, true); // Controllo la coda di messaggi
 
     }else{
 
@@ -166,27 +153,14 @@ void onDataReceive(const uint8_t *mac, const uint8_t *incomingData, int len){
         // Inoltre se durante il controllo faccio un erase di un messaggio causale, mi conviene ricominciare il ciclo
         // infatti è possibile che quelli dietro adesso siano causali e quindi sbloccabili
 
-        bool checkPopPart = false;
-        do{
-          Serial.println("[Partecipant] Nella mia coda ho "+String(holdBackQueuePart.size())+" messaggi");
-          checkPopPart = false;
-          for (auto it = holdBackQueuePart.rbegin(); it != holdBackQueuePart.rend(); ){
-            // Faccio il controllo per il messaggio in coda, ultimo posto (se è arrivato un messaggio è quello in ultima posizione)
-            checkPopPart = causalControlPartecipant(*it,it); // Passo sia il messaggio con l'iteratore che l'iteratore stesso
-            Serial.println("[Partecipant] checkPopSeq: "+String(checkPopPart));
-            if(checkPopPart){ // se ho sbloccato un messaggio...
-              Serial.println("[Partecipant] Il pop era true, ricomnicio il ciclo");
-              break;      // esco dal ciclo per ricominciare dalla fine della coda
-            }
-            ++it;           // Incremento l'iteratore per scorrere la coda
-          }
-        }while(checkPopPart);
+        processHoldBackQueue(holdBackQueuePart, false); // Controllo la coda di messaggi
 
       }else if(auctionMessageToReceive.messageType == "order"){
         Serial.println("[Partecipant] Arrivato un messaggio di ordinamento");
         Serial.println("SenderId: "+String(auctionMessageToReceive.senderId));
         Serial.println("MessageId: "+String(auctionMessageToReceive.messageId));
         Serial.println("Sequence Number: "+String(auctionMessageToReceive.sequenceNum));
+
         if(checkCorrispondence(auctionMessageToReceive)){
 
           TO_Deliver(auctionMessageToReceive);
