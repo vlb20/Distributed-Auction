@@ -23,7 +23,7 @@ int winnerNodeId = -1;                                   //id del vincitore dell
 unsigned long auctionEndTime = 0;                       //tempo di fine asta
 unsigned long restartTimer = 0;                         // con la funzione millis() aggiorno ogni volta quando mi arriva un offerta, mi serve per implementare un timer
 bool auctionStarted = false;                            // Flag per tracciare se l'asta è partita
-bool buttonPressed = false;                             //simulazione bottone inizio asta
+bool buttonStartAuction = false;                             //simulazione bottone inizio asta
 bool buttonBid = false;                                 //simulazione bottone offerta
 
 // Struttura per messaggi
@@ -167,7 +167,7 @@ void onDataReceive(const uint8_t *mac, const uint8_t *incomingData, int len){
           Serial.println("[Partecipant] Ho fatto la TO Deliver");
         }else{
           holdBackQueueOrder.push_back(auctionMessageToReceive);
-          Serial.println("Messaggio aggiunto alla hold-back queue di ordinamento.");
+          Serial.println("[Partecipant] Messaggio aggiunto alla hold-back queue di ordinamento.");
         }
       }
 
@@ -216,7 +216,7 @@ bool checkCorrispondence(struct_message messageToCheck, String corrispondenceTyp
       if (messageToCheck.messageId == holdBackQueueOrder[i].messageId && messageToCheck.senderId == holdBackQueueOrder[i].senderId && sequenceNumber == holdBackQueueOrder[i].sequenceNum ) {
         return true;
       }
-      }
+    }
     return false;
     }catch(const std::out_of_range& e){
       Serial.println("[Partecipant] Errore nella funzione checkCorrispondence");
@@ -227,10 +227,10 @@ bool checkCorrispondence(struct_message messageToCheck, String corrispondenceTyp
 
     try{
     for (int i=0; i<holdBackQueueCausal.size(); i++) {
-      if (messageToCheck.messageId == holdBackQueueCausal[i].messageId && messageToCheck.senderId == holdBackQueueCausal[i].senderId && sequenceNumber == holdBackQueueCausal[i].sequenceNum ) {
+      if (messageToCheck.messageId == holdBackQueueCausal[i].messageId && messageToCheck.senderId == holdBackQueueCausal[i].senderId && sequenceNumber == messageToCheck.sequenceNum ) {
         return true;
       }
-      }
+    }
     return false;
     }catch(const std::out_of_range& e){
       Serial.println("[Partecipant] Errore nella funzione checkCorrispondence");
@@ -301,6 +301,7 @@ void TO_Deliver(struct_message message){
   sequenceNumber++;
   Serial.println("[Partecipant] Messaggio consegnato");
   Serial.println("[Partecipant] Bid offerta " + String(auctionMessageToReceive.bid) + "da parte di " + String(auctionMessageToReceive.senderId));
+  Serial.println("[Partecipant] Il mio Sequence Number ora è " + String(sequenceNumber));
 
 }
 
@@ -315,8 +316,10 @@ void sendSequencer(struct_message message) {
       winnerNodeId = auctionMessageToSend.senderId;                                 // e il vincitore momentaneo
       auctionMessageToSend.highestBid = highestBid;                                 // Aggiorno il messaggio con l'offerta più alta
     }
+
+    auctionMessageToSend.sequenceNum = sequenceNumber;
     esp_err_t result = esp_now_send(broadcastAddress, (uint8_t *) &auctionMessageToSend, sizeof(auctionMessageToSend));
-    auctionMessageToSend.sequenceNum = sequenceNumber++;
+    sequenceNumber++;
 
     restartTimer = millis();                                                // Aggiorno il timer di restart
 
@@ -409,7 +412,7 @@ void setup() {
 
   esp_now_register_recv_cb(esp_now_recv_cb_t(onDataReceive));                                             // registro la funzione "OnDataRecv()" come funzione di callback alla ricezione di un messagio
 
-  buttonPressed = true;                                                             //sto simulando l'inizio di una sola asta
+  buttonStartAuction = true;                                                             //sto simulando l'inizio di una sola asta
   buttonBid = true;                                                                 //sto simulando l'offerta di un solo nodo
   delay(5000);
 
@@ -418,8 +421,8 @@ void setup() {
 /*************************FUNZIONE LOOP***************************************************/
 void loop() {
 
-  if(buttonPressed){                                                                 // Se è stato premuto il bottone di inizio asta
-    buttonPressed = false;
+  if(buttonStartAuction){                                                                 // Se è stato premuto il bottone di inizio asta
+    buttonStartAuction = false;
     startAuction();                                                                  // setto le variabili iniziali, tra cui la variabile che segna l'inizio dell'asta
   }
 
