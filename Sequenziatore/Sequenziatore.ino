@@ -5,10 +5,13 @@
 
 #define DURATION_TIME 60000
 #define NUM_NODES 5
+#define BUTTON_AUCTION_PIN 18
+#define BUTTON_BID_PIN 19
+
 
 // Indirizzo di broadcast per inviare a tutti i nodi
 uint8_t broadcastAddress[] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
-String mac_sequencer = "AC:15:18:E9:9F:4C";
+String mac_sequencer = "F8:B3:B7:2C:71:80";
 
 // Crea la mappa per associare MAC address a numeri da 0 a 4
 std::map<String, int> macToNumberMap;
@@ -22,9 +25,14 @@ int highestBid = 0;                                      //segna il valore dell'
 int winnerNodeId = -1;                                   //id del vincitore dell'asta attuale
 unsigned long auctionEndTime = 0;                       //tempo di fine asta
 unsigned long restartTimer = 0;                         // con la funzione millis() aggiorno ogni volta quando mi arriva un offerta, mi serve per implementare un timer
+unsigned long lastDebounceTimeBid = 0;                  // lastDebounceTime per il bottone di offerta
+unsigned long lastDebounceTimeStart = 0;                // lastDebounceTime per il bottone di inizio asta
+int lastDebounceStateBid = LOW;                         // lastDebounceState per il bottone di offerta  
+int lastDebounceStateStart = LOW;                       // lastDebounceState per il bottone di inizio asta  
+int buttonStateBid = LOW;                               // buttonState per il bottone di offerta
+int buttonStateStart = LOW;                             // buttonState per il bottone di inizio asta
+unsigned long debounceDelay = 50;                    // debounceDelay per il bottone di offerta
 bool auctionStarted = false;                            // Flag per tracciare se l'asta è partita
-bool buttonStartAuction = false;                             //simulazione bottone inizio asta
-bool buttonBid = false;                                 //simulazione bottone offerta
 
 // Struttura per messaggi
 typedef struct struct_message {
@@ -56,6 +64,7 @@ void startAuction(){
   auctionStarted = true;                                                            // metto a true l'inizio dell'asta
   restartTimer = millis();                                                           // leggo e salvo il tempo di inizio asta
   auctionEndTime = DURATION_TIME;
+  Serial.println("[Sequencer] Asta iniziata");
 }
 
 
@@ -83,7 +92,7 @@ void OnDataSent(const uint8_t *mac_addr, esp_now_send_status_t status) {
 
     processHoldBackQueue(holdBackQueueSeq, true); // Controllo la coda di messaggi
 
-  }else if(myMacAddress != mac_sequencer){
+  }else if(myMacAddress != mac_sequencer && auctionMessageToSend.messageType == "bid"){
     holdBackQueuePart.push_back(auctionMessageToSend);                                // Se sono un partecipante generico, pusho nella coda partecipanti
     Serial.println("[Partecipant] Messaggio aggiunto alla hold-back queue con:");
     Serial.println("SenderId: "+String(auctionMessageToSend.senderId));
@@ -169,8 +178,13 @@ void onDataReceive(const uint8_t *mac, const uint8_t *incomingData, int len){
           holdBackQueueOrder.push_back(auctionMessageToReceive);
           Serial.println("[Partecipant] Messaggio aggiunto alla hold-back queue di ordinamento.");
         }
+      }else if(auctionMessageToReceive.messageType == "start"){
+        auctionStarted = true;
+        Serial.println("[Partecipant] Asta iniziata sono così felice");
+      }else if(auctionMessageToReceive.messageType == "end"){
+        auctionStarted = false;
+        Serial.println("[Partecipant] Asta finita, sono triste");
       }
-
     }
 }
 
@@ -367,10 +381,71 @@ void checkEndAuction(){
 
   if(millis() - restartTimer >= DURATION_TIME){                                    // Se il tempo attuale (millis()) meno il tempo di inizio asta (restartTimer) è maggiore di Duration
     auctionStarted = false;                                                        // L'asta è finita, tutti a casa, LUKAKU è mio!!
-  Serial.println("Ha vinto il nodo " + String(winnerNodeId));                      // Annuncio il vincitore
+    Serial.println("Ha vinto il nodo " + String(winnerNodeId));                      // Annuncio il vincitore
     Serial.println("con un offerta di " + String(highestBid));
+    auctionMessageToSend.messageType = "end";                                       // Setto il messaggio di fine asta
+    esp_err_t result = esp_now_send(broadcastAddress, (uint8_t *) &auctionMessageToSend, sizeof(auctionMessageToSend)); // Invio il messaggio di fine asta
   }
 
+}
+
+// Funzione di debounce con switch-case
+bool checkButtonPressed(int pinButton) {
+  // Leggo lo stato attuale del pulsante
+  int reading = digitalRead(pinButton);
+
+  // Switch per distinguere i pulsanti
+  switch (pinButton) {
+    case BUTTON_AUCTION_PIN:
+      // Se il pulsante Auction ha cambiato stato
+      if (reading != lastDebounceStateStart) {
+        lastDebounceTimeStart = millis(); // Aggiorno il timer di debounce
+      }
+
+      // Controllo se il debounce è superato
+      if ((millis() - lastDebounceTimeStart) > debounceDelay) {
+        if (reading != buttonStateStart) {
+          buttonStateStart = reading;
+
+          if (buttonStateStart == LOW) {
+            Serial.println("[Sequencer] Pulsante Auction premuto!");
+            lastDebounceStateStart = reading;
+            return true;
+          }
+        }
+      }
+
+      lastDebounceStateStart = reading;
+      break;
+
+    case BUTTON_BID_PIN:
+      // Se il pulsante Bid ha cambiato stato
+      if (reading != lastDebounceStateBid) {
+        lastDebounceTimeBid = millis(); // Aggiorno il timer di debounce
+      }
+
+      // Controllo se il debounce è superato
+      if ((millis() - lastDebounceTimeBid) > debounceDelay) {
+        if (reading != buttonStateBid) {
+          buttonStateBid = reading;
+
+          if (buttonStateBid == LOW) {
+            Serial.println("Pulsante Bid premuto!");
+            lastDebounceStateBid = reading;
+            return true;
+          }
+        }
+      }
+
+      lastDebounceStateBid = reading;
+      break;
+
+    default:
+      // Caso di default, nessuna azione
+      break;
+  }
+
+  return false; // Nessun pulsante premuto
 }
 
 /**********************FUNZIONE DI SETUP**************************************/
@@ -378,21 +453,28 @@ void setup() {
 
 
   // Aggiungi alcune associazioni MAC address -> numero
-  macToNumberMap["AC:15:18:E9:9F:4C"] = 0;
-  macToNumberMap["F8:B3:B7:2C:71:80"] = 1;
-  macToNumberMap["4C:11:AE:65:AF:08"] = 2;
-  macToNumberMap["F8:B3:B7:2C:71:80"] = 3;
-  macToNumberMap["F8:B3:B7:2C:71:80"] = 4;
-
+  macToNumberMap["F8:B3:B7:2C:71:80"] = 0; //Indo cina (XXSR69)
+  macToNumberMap["F8:B3:B7:44:BF:C8"] = 1;
+  macToNumberMap["4C:11:AE:65:AF:08"] = 2; //Bebe
+  macToNumberMap[""] = 3;
+  macToNumberMap[""] = 4;
 
   Serial.begin(115200);
   WiFi.mode(WIFI_STA);
   delay(2000);
   myMacAddress = WiFi.macAddress();
   Serial.println("MAC Address: " + myMacAddress);
+  Serial.println("My Node ID: " + String(macToNumberMap[myMacAddress]));
 
   myNodeId = macToNumberMap[myMacAddress];                                        // Assegno l'id del nodo in base al MAC address
 
+  // Configurazione del bottone per l'inizio dell'asta
+  if(myNodeId == 0){
+    pinMode(BUTTON_AUCTION_PIN, INPUT_PULLUP);
+  }
+
+  //Configurazione del bottone per l'offerta
+  pinMode(BUTTON_BID_PIN, INPUT_PULLUP);
 
   if (esp_now_init() != ESP_OK) {                                                   // Se la connesione esp non è andata a buon fine
         Serial.println("Error initializing ESP-NOW");                               // lo segnalo e termino il programma
@@ -411,40 +493,54 @@ void setup() {
   }
 
   esp_now_register_recv_cb(esp_now_recv_cb_t(onDataReceive));                                             // registro la funzione "OnDataRecv()" come funzione di callback alla ricezione di un messagio
-
-  buttonStartAuction = true;                                                             //sto simulando l'inizio di una sola asta
-  buttonBid = true;                                                                 //sto simulando l'offerta di un solo nodo
-  delay(5000);
+                                                                
+  delay(1000);
 
 }
 
 /*************************FUNZIONE LOOP***************************************************/
 void loop() {
 
-  if(buttonStartAuction){                                                                 // Se è stato premuto il bottone di inizio asta
-    buttonStartAuction = false;
-    startAuction();                                                                  // setto le variabili iniziali, tra cui la variabile che segna l'inizio dell'asta
-  }
+  // DA FARE:
+  // Finire le funzioni di debouncing   (FATTO...forse)
+  // Implementare il messaggio di inizio asta 
+  // Eventualmente anche il messaggio di fine asta
+  // Controllare Arrivo dei messaggi di ordinamento prima un sequence più alto e poi quello attuale
 
-  // Tutti se l'asta è iniziata
-  if(auctionStarted){                                                               // finchè l'asta non è finita
+  //### COMPORTAMENTO DEL SEQUENZIATORE ###
+  if(myNodeId == 0){
 
-    //parte sequeziatore
-    if(myMacAddress == mac_sequencer){
+    // Controllo se il bottone di inizio asta è stato premuto e se non è già in corso un'asta
+    if(checkButtonPressed(BUTTON_AUCTION_PIN) && !auctionStarted){
+      startAuction();                                            // setto le variabili iniziali, tra cui la variabile che segna l'inizio dell'asta
+      auctionMessageToSend.messageType = "start";                               // setto il messaggio di inizio asta
+      esp_err_t result = esp_now_send(broadcastAddress, (uint8_t *) &auctionMessageToSend, sizeof(auctionMessageToSend)); // invio il messaggio di inizio asta
+    }
+
+    // Tutti se l'asta è iniziata
+    if(auctionStarted){                                                               // finchè l'asta non è finita
+
+      //parte sequeziatore
       checkEndAuction();                                                              // controllo se l'asta è finita
+      
+      // Se bottone premuto per fare offerta
+      if(checkButtonPressed(BUTTON_BID_PIN)){
+        sendBid();                                                                      // invio l'offerta
+      }
+
     }
 
-    // Se bottone premuto per fare offerta
-    if(buttonBid){
+  //#### COMPORTAMENTO DEI PARTECIPANTI ####
+  }else if(myNodeId != 0){
 
-      // #########FARE DEBOUNCER##########
-      buttonBid = false;
-      delay(3000);
-      sendBid();                                                                      // invio l'offerta
-
+    // Se l'asta è iniziata
+    if(auctionStarted){ 
+        // Se bottone premuto per fare offerta
+        if(checkButtonPressed(BUTTON_BID_PIN)){
+          sendBid();                                                                      // invio l'offerta
+        }
     }
 
   }
-
 }
 
