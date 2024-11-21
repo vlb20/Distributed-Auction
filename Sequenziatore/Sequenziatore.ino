@@ -456,8 +456,8 @@ void setup() {
   macToNumberMap["F8:B3:B7:2C:71:80"] = 0; //Indo cina (XXSR69)
   macToNumberMap["F8:B3:B7:44:BF:C8"] = 1;
   macToNumberMap["4C:11:AE:65:AF:08"] = 2; //Bebe
-  macToNumberMap[""] = 3;
-  macToNumberMap[""] = 4;
+  macToNumberMap["4C:11:AE:B3:5A:8C"] = 3;
+  macToNumberMap["A0:B7:65:26:88:D4"] = 4;
 
   Serial.begin(115200);
   WiFi.mode(WIFI_STA);
