@@ -29,8 +29,8 @@ unsigned long auctionEndTime = 0;                       //tempo di fine asta
 unsigned long restartTimer = 0;                         // con la funzione millis() aggiorno ogni volta quando mi arriva un offerta, mi serve per implementare un timer
 unsigned long lastDebounceTimeBid = 0;                  // lastDebounceTime per il bottone di offerta
 unsigned long lastDebounceTimeStart = 0;                // lastDebounceTime per il bottone di inizio asta
-int lastDebounceStateBid = LOW;                         // lastDebounceState per il bottone di offerta  
-int lastDebounceStateStart = LOW;                       // lastDebounceState per il bottone di inizio asta  
+int lastDebounceStateBid = LOW;                         // lastDebounceState per il bottone di offerta
+int lastDebounceStateStart = LOW;                       // lastDebounceState per il bottone di inizio asta
 int buttonStateBid = LOW;                               // buttonState per il bottone di offerta
 int buttonStateStart = LOW;                             // buttonState per il bottone di inizio asta
 unsigned long debounceDelay = 100;                    // debounceDelay per il bottone di offerta
@@ -86,9 +86,9 @@ void startAuction(){
     auctionMessageToSend.vectorClock[i] = 0;
   }
 
-  auctionMessageToSendOrder.messageId = 0;                                               
-  auctionMessageToSendOrder.bid = 0;    
-  auctionMessageToSendOrder.messageType = "order";                                                  
+  auctionMessageToSendOrder.messageId = 0;
+  auctionMessageToSendOrder.bid = 0;
+  auctionMessageToSendOrder.messageType = "order";
   for(int i=0; i<NUM_NODES; i++){
     auctionMessageToSendOrder.vectorClock[i] = 0;
   }
@@ -136,7 +136,7 @@ void OnDataSent(const uint8_t *mac_addr, esp_now_send_status_t status) {
 
   //------- DA CAPIRE SE SERVE, SE FACCIO RECEIVE SU I MIEI INVI QUESTO CODICE NON SERVE-----------
   Serial.println("");
-  
+
 
   if(myMacAddress == mac_sequencer && lastWasBid){
     Serial.println("OnDataSent: BID-SEQUENCER!");
@@ -188,7 +188,9 @@ void OnDataSent(const uint8_t *mac_addr, esp_now_send_status_t status) {
     Serial.println(" ]");
   }
 
-  onSendComplete();
+  if(myNodeId==0){
+    onSendComplete();
+  }
 
 }
 
@@ -269,7 +271,7 @@ void onDataReceive(const uint8_t *mac, const uint8_t *incomingData, int len){
                 checkPopCorrispondence = true;
                 TO_Deliver(*it);
                 Serial.println("[Partecipant] Ho fatto la TO Deliver");
-                break;     
+                break;
               }
               ++it;
             }
@@ -428,7 +430,7 @@ void TO_Deliver(struct_message message){
 
 void sendSequencer(struct_message message) {
 
-    lastWasBid = false; 
+    lastWasBid = false;
     auctionMessageToSendOrder = message;
     auctionMessageToSendOrder.messageType = "order";                                             // Setto il tipo di messaggio
 
@@ -459,7 +461,8 @@ void sendSequencer(struct_message message) {
 void sendBid(){
 
   lastWasBid = true;
-  auctionMessageToSend.bid = highestBid+1;                                              // Setto il valore dell'offerta
+  auctionMessageToSend.bid = highestBid+1;                                               // Incremento l'offerta
+  highestBid++;
   auctionMessageToSend.senderId = myNodeId;                                              // Setto il mittente
   auctionMessageToSend.messageId = messageId+1;                                     //
   messageId++;
@@ -470,7 +473,17 @@ void sendBid(){
   auctionMessageToSend.messageType = "bid";
 
   //esp_err_t result = esp_now_send(broadcastAddress, (uint8_t *) &auctionMessageToSend, sizeof(auctionMessageToSend));
-  queueMessage(auctionMessageToSend);
+  if(myNodeId == 0){
+    queueMessage(auctionMessageToSend);
+  }else{
+    esp_err_t result = esp_now_send(broadcastAddress, (uint8_t *) &auctionMessageToSend, sizeof(auctionMessageToSend));
+
+    if (result == ESP_OK) {
+      Serial.println("[Partecipant] Offerta inviata di " + String(auctionMessageToSend.bid) + " da parte di " + String(auctionMessageToSend.senderId));
+    } else {
+      Serial.println("[Partecipant] Errore nell'invio del messaggio di offerta");
+    }
+  }
 
 }
 
@@ -600,7 +613,7 @@ void printHoldBackQueues(){
     Serial.println(" ]");
   }
 
-}  
+}
 
 /**********************FUNZIONE DI SETUP**************************************/
 void setup() {
@@ -647,7 +660,7 @@ void setup() {
   }
 
   esp_now_register_recv_cb(esp_now_recv_cb_t(onDataReceive));                                             // registro la funzione "OnDataRecv()" come funzione di callback alla ricezione di un messagio
-                                                                
+
   delay(1000);
 
 }
@@ -657,7 +670,7 @@ void loop() {
 
   // DA FARE:
   // Finire le funzioni di debouncing   (FATTO...forse)
-  // Implementare il messaggio di inizio asta 
+  // Implementare il messaggio di inizio asta
   // Eventualmente anche il messaggio di fine asta
   // Controllare Arrivo dei messaggi di ordinamento prima un sequence più alto e poi quello attuale
 
@@ -677,7 +690,7 @@ void loop() {
 
       //parte sequeziatore
       checkEndAuction();                                                              // controllo se l'asta è finita
-      
+
       // Se bottone premuto per fare offerta
       if(checkButtonPressed(BUTTON_BID_PIN)){
         sendBid();                                                                      // invio l'offerta
@@ -689,7 +702,7 @@ void loop() {
   }else if(myNodeId != 0){
 
     // Se l'asta è iniziata
-    if(auctionStarted){ 
+    if(auctionStarted){
         // Se bottone premuto per fare offerta
         if(checkButtonPressed(BUTTON_BID_PIN)){
           sendBid();                                                                      // invio l'offerta
