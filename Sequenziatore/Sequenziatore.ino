@@ -64,9 +64,7 @@ void startAuction(){
   auctionStarted = true;                                                            // metto a true l'inizio dell'asta
   restartTimer = millis();                                                           // leggo e salvo il tempo di inizio asta
   auctionEndTime = DURATION_TIME;
-  for (int i = 0; i < NUM_NODES; i++) {
-    vectorClock[i] = 0;
-  }
+  vectorClock = {0,0,0,0,0};                                                        // resetto il vector clock
   holdBackQueueSeq.clear();                                                         // pulisco la coda di messaggi
   holdBackQueuePart.clear();                                                        // pulisco la coda di messaggi
   holdBackQueueOrder.clear();                                                       // pulisco la coda di messaggi
@@ -74,15 +72,13 @@ void startAuction(){
 
   auctionMessageToSend.messageId = 0;                                               // resetto l'id del messaggio
   auctionMessageToSend.bid = 0;                                                      // resetto l'offerta
-  for(int i = 0; i < NUM_NODES; i++){
-    auctionMessageToSend.vectorClock[i] = 0;                                         // resetto il vector clock
-  }
+  auctionMessageToSend.vectorClock = {0,0,0,0,0};                                   // resetto il vector clock
+
 
   auctionMessageToReceive.messageId = 0;                                               // resetto l'id del messaggio
   auctionMessageToReceive.bid = 0;                                                      // resetto l'offerta
-  for(int i = 0; i < NUM_NODES; i++){
-    auctionMessageToReceive.vectorClock[i] = 0;                                         // resetto il vector clock
-  }
+  auctionMessageToReceive.vectorClock = {0,0,0,0,0};                                   // resetto il vector clock
+
 
   Serial.println("[Sequencer] Asta iniziata");
 }
