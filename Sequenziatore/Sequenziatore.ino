@@ -3,6 +3,8 @@
 #include <vector>
 #include <map>
 #include <queue>
+#include <freertos/FreeRTOS.h>
+#include <freertos/task.h>
 
 #define DURATION_TIME 60000
 #define NUM_NODES 5
@@ -38,6 +40,12 @@ bool auctionStarted = false;                            // Flag per tracciare se
 bool isSending = false;                                 // Lock LOGICO per evitare che due messaggi vengano inviati contemporaneamente
 bool lastWasBid = false;
 
+// Tipi che possono essere associati ad un task
+enum CallbackType {
+    SEND_BID,
+    ON_DATA_RECEIVE
+};
+
 // Struttura per messaggi
 typedef struct struct_message {
     int bid = 0;                                            //bid dell'offerta nel messaggio
@@ -45,9 +53,18 @@ typedef struct struct_message {
     int messageId = 0;                                      //id del messaggio, utile per riconoscere i messaggi in fase di ricezione
     int senderId = 0;                                       //id del mittente del messaggio
     int sequenceNum = 0;                                    //sequence number associato al messaggio
-    int vectorClock[NUM_NODES] = {0,0,0,0,0};                         //vector clock inviato nel messaggio
-    String messageType = "";                                 //tipo di messaggio ("bid", "order")
+    int vectorClock[NUM_NODES] = {0,0,0,0,0};               //vector clock inviato nel messaggio
+    String messageType = "";                                //tipo di messaggio ("bid", "order")
 } struct_message;
+
+// Struttura per task passato nella coda dei task
+typedef struct {
+    CallbackType type;
+    struct_message message; 
+} CallbackMessage;
+
+QueueHandle_t callbackQueue; // Coda per le richieste delle callback
+TaskHandle_t callbackTaskHandle; // Handle del task
 
 //Coda dei messaggi in attesa
 std::vector<struct_message> holdBackQueueSeq;           // Hold-back queue Sequenziatore
@@ -59,9 +76,31 @@ struct_message auctionMessageToSend;                    //Messaggio da inviare (
 struct_message auctionMessageToSendOrder;               //Messaggio da inviare (order)
 struct_message auctionMessageToReceive;                 //Messaggio ricevuto
 
-std::queue<struct_message> message_queue_to_send;               // Coda dei messaggi da inviare per il sequenziatore
+std::queue<struct_message> message_queue_to_send;       // Coda dei messaggi da inviare per il sequenziatore
 
-esp_now_peer_info_t peerInfo; // Aggiunta dichiarazione della variabile peerInfo
+esp_now_peer_info_t peerInfo;                           // Aggiunta dichiarazione della variabile peerInfo
+
+// CallBack principale per l'esecuzione dei task
+void callbackTask(void *pvParameters) {
+    CallbackMessage msg;
+
+    while (true) {
+        // Attende un messaggio nella coda
+        if (xQueueReceive(callbackQueue, &msg, portMAX_DELAY) == pdTRUE) {
+            // Gestisce il messaggio in base al tipo
+            switch (msg.type) {
+                case SEND_BID:
+                    sendBid(msg.message);
+                    break;
+                case ON_DATA_RECEIVE:
+                    onDataReceive(msg.message); // Esegui con i dati
+                    break;
+            }
+
+        }
+    }
+}
+
 
 // Funzione per iniziare l'asta - TUTTI
 void startAuction(){
@@ -70,10 +109,10 @@ void startAuction(){
   sequenceNumber = 0;
   messageId = 0;
   auctionStarted = true;                                                            // metto a true l'inizio dell'asta
-  restartTimer = millis();                                                           // leggo e salvo il tempo di inizio asta
+  restartTimer = millis();                                                          // leggo e salvo il tempo di inizio asta
   auctionEndTime = DURATION_TIME;
   for(int i=0; i<NUM_NODES; i++){
-    vectorClock[i] = 0;                                      //resetto il vector clock
+    vectorClock[i] = 0;                                                             //resetto il vector clock
   }
   holdBackQueueSeq.clear();                                                         // pulisco la coda di messaggi
   holdBackQueuePart.clear();                                                        // pulisco la coda di messaggi
@@ -81,7 +120,7 @@ void startAuction(){
   holdBackQueueCausal.clear();                                                      // pulisco la coda di messaggi
 
   auctionMessageToSend.messageId = 0;                                               // resetto l'id del messaggio
-  auctionMessageToSend.bid = 0;                                                      // resetto l'offerta
+  auctionMessageToSend.bid = 0;                                                     // resetto l'offerta
   for(int i=0; i<NUM_NODES; i++){
     auctionMessageToSend.vectorClock[i] = 0;
   }
@@ -113,6 +152,7 @@ void processQueue(){
     isSending = true;
     struct_message message = message_queue_to_send.front();
     message_queue_to_send.pop();
+    lastWasBid = (message.messageType == "bid");
     esp_err_t result = esp_now_send(broadcastAddress, (uint8_t *) &message, sizeof(message));
     if (result == ESP_OK) {
       Serial.println("[Sequencer] Messaggio inviato con successo con bid: "+String(message.bid)+" da "+String(message.senderId));
@@ -129,63 +169,109 @@ void onSendComplete() {
   processQueue();
 }
 
+void triggerOnDataSent(const uint8_t *mac_addr, esp_now_send_status_t status){
+  // Quando invio un messaggio non faccio niente
+  // Il task ha già ricevuto per me il messaggio che invio
+}
+
+void triggerOnDataReceive(const uint8_t *mac, const uint8_t *incomingData, int len){
+  memcpy(&auctionMessageToReceive, incomingData, sizeof(auctionMessageToReceive));
+
+  CallbackMessage msg;
+  msg.type = ON_DATA_RECEIVE;
+  msg.message = auctionMessageToReceive;
+
+  xQueueSend(callbackQueue, &msg, portMAX_DELAY);
+
+}
+
+void triggerSendBid(){
+
+  struct_message message;
+  message.bid = highestBid+1;                                               // Incremento l'offerta
+  highestBid++;
+  message.senderId = myNodeId;                                              // Setto il mittente
+  message.messageId = messageId+1;                                     //
+  messageId++;
+  for (int i = 0; i < NUM_NODES; i++) {
+    message.vectorClock[i] = vectorClock[i];
+  }
+  message.vectorClock[myNodeId] = vectorClock[myNodeId] + 1;
+  message.messageType = "bid";
+
+  CallbackMessage msg;
+  msg.message = message;
+  msg.type = SEND_BID;
+
+  xQueueSend(callbackQueue, &msg, portMAX_DELAY);
+
+}
+
 // Callback invio dati - TUTTI
-void OnDataSent(const uint8_t *mac_addr, esp_now_send_status_t status) {
+void OnDataSent(struct_message message) {
   // Quando invio un'offerta me la registro nella coda
   // Come se inviassi il messaggio a me stesso
 
-  //------- DA CAPIRE SE SERVE, SE FACCIO RECEIVE SU I MIEI INVI QUESTO CODICE NON SERVE-----------
   Serial.println("");
-
-
+  Serial.println("OnDataSent!");
+  // Se sono il sequenziatore e l'ultimo messaggio inviato era un'offerta, la ricevo
   if(myMacAddress == mac_sequencer && lastWasBid){
     Serial.println("OnDataSent: BID-SEQUENCER!");
-    holdBackQueueSeq.push_back(auctionMessageToSend);                                 // Se sono il sequenziatore pusho nella mia coda
+    holdBackQueueSeq.push_back(message);                                 // Se sono il sequenziatore pusho nella mia coda
     Serial.println("[Sequencer] Messaggio aggiunto alla holdBackQueue con:");
-    Serial.println("SenderId: "+String(auctionMessageToSend.senderId));
-    Serial.println("MessageId: "+String(auctionMessageToSend.messageId));
-    Serial.println("Bid: "+String(auctionMessageToSend.bid));
+    Serial.println("SenderId: "+String(message.senderId));
+    Serial.println("MessageId: "+String(message.messageId));
+    Serial.println("Bid: "+String(message.bid));
     // Stampa il vector clock
     Serial.print("Vector Clock: [ ");
-    for (int i = 0; i < NUM_NODES; i++) { // Usa NUM_NODES per la dimensione dinamica
-      Serial.print(auctionMessageToSend.vectorClock[i]);
-      if (i < NUM_NODES - 1) Serial.print(", "); // Aggiungi virgola tra i valori, ma non alla fine
+    for (int i = 0; i < NUM_NODES; i++) {                                             // Usa NUM_NODES per la dimensione dinamica
+      Serial.print(message.vectorClock[i]);
+      if (i < NUM_NODES - 1) Serial.print(", ");                                      // Aggiungi virgola tra i valori, ma non alla fine
     }
     Serial.println(" ]");
+    Serial.println("[Sequencer] La HoldBackQueue è la seguente");
+    printHoldBackQueueSeq();
 
-    processHoldBackQueue(holdBackQueueSeq, true); // Controllo la coda di messaggi
+    processHoldBackQueue(holdBackQueueSeq, true);                                     // Controllo la coda di messaggi
+    /*
     Serial.println("\r\nStatus BID-SEQUENCER:\t");
     Serial.println(status == ESP_NOW_SEND_SUCCESS ? "Success" : "Failed");
-    for (int i = 0; i < NUM_NODES; i++) { // Usa NUM_NODES per la dimensione dinamica
+    for (int i = 0; i < NUM_NODES; i++) {                                             // Usa NUM_NODES per la dimensione dinamica
       Serial.print(vectorClock[i]);
-      if (i < NUM_NODES - 1) Serial.print(", "); // Aggiungi virgola tra i valori, ma non alla fine
+      if (i < NUM_NODES - 1) Serial.print(", ");                                      // Aggiungi virgola tra i valori, ma non alla fine
     }
     Serial.println(" ]");
+    */
 
 
-  }else if(myMacAddress != mac_sequencer && lastWasBid){
+
+  }else if(myMacAddress != mac_sequencer){
     Serial.println("OnDataSent: BID-PARTECIPANT!");
-    holdBackQueuePart.push_back(auctionMessageToSend);                                // Se sono un partecipante generico, pusho nella coda partecipanti
+    holdBackQueuePart.push_back(message);                                // Se sono un partecipante generico, pusho nella coda partecipanti
     Serial.println("[Partecipant] Messaggio aggiunto alla hold-back queue con:");
-    Serial.println("SenderId: "+String(auctionMessageToSend.senderId));
-    Serial.println("MessageId: "+String(auctionMessageToSend.messageId));
-    Serial.println("Bid: "+String(auctionMessageToSend.bid));
+    Serial.println("SenderId: "+String(message.senderId));
+    Serial.println("MessageId: "+String(message.messageId));
+    Serial.println("Bid: "+String(message.bid));
     // Stampa il vector clock
     Serial.print("Vector Clock: [ ");
     for (int i = 0; i < NUM_NODES; i++) { // Usa NUM_NODES per la dimensione dinamica
-      Serial.print(auctionMessageToSend.vectorClock[i]);
+      Serial.print(message.vectorClock[i]);
       if (i < NUM_NODES - 1) Serial.print(", "); // Aggiungi virgola tra i valori, ma non alla fine
     }
     Serial.println(" ]");
+    Serial.println("[Partecipant] La HoldBackQueue è la seguente");
+    printHoldBackQueuePart();
 
     processHoldBackQueue(holdBackQueuePart, false); // Controllo la coda di messaggi
     Serial.println("\r\nStatus BID-PARTECIPANT:\t");
+    /*
     Serial.println(status == ESP_NOW_SEND_SUCCESS ? "Success" : "Failed");
     for (int i = 0; i < NUM_NODES; i++) { // Usa NUM_NODES per la dimensione dinamica
       Serial.print(vectorClock[i]);
       if (i < NUM_NODES - 1) Serial.print(", "); // Aggiungi virgola tra i valori, ma non alla fine
     }
     Serial.println(" ]");
+    */
   }
 
   if(myNodeId==0){
@@ -195,8 +281,7 @@ void OnDataSent(const uint8_t *mac_addr, esp_now_send_status_t status) {
 }
 
 // Calback ricezione dati - SEQUENZIATORE
-void onDataReceive(const uint8_t *mac, const uint8_t *incomingData, int len){
-    memcpy(&auctionMessageToReceive, incomingData, sizeof(auctionMessageToReceive));
+void onDataReceive(struct_message message) {
 
     Serial.println("");
     Serial.println("OnDataReceive!");
@@ -204,38 +289,42 @@ void onDataReceive(const uint8_t *mac, const uint8_t *incomingData, int len){
     // Se sono il sequenziatore faccio una receive diversa
     if(myMacAddress == mac_sequencer){
 
-      holdBackQueueSeq.push_back(auctionMessageToReceive);                              // Aggiungi il messaggio alla hold-back queue
+      holdBackQueueSeq.push_back(message);                              // Aggiungi il messaggio alla hold-back queue
 
       Serial.println("[Sequencer] Messaggio aggiunto alla holdBackQueue con:");
-      Serial.println("SenderId: "+String(auctionMessageToReceive.senderId));
-      Serial.println("MessageId: "+String(auctionMessageToReceive.messageId));
-      Serial.println("Bid: "+String(auctionMessageToReceive.bid));
+      Serial.println("SenderId: "+String(message.senderId));
+      Serial.println("MessageId: "+String(message.messageId));
+      Serial.println("Bid: "+String(message.bid));
       // Stampa il vector clock
       Serial.print("Vector Clock: [ ");
       for (int i = 0; i < NUM_NODES; i++) { // Usa NUM_NODES per la dimensione dinamica
-        Serial.print(auctionMessageToReceive.vectorClock[i]);
+        Serial.print(message.vectorClock[i]);
         if (i < NUM_NODES - 1) Serial.print(", "); // Aggiungi virgola tra i valori, ma non alla fine
       }
       Serial.println(" ]");
+      Serial.println("[Sequencer] La HoldBackQueue è la seguente");
+      printHoldBackQueueSeq();
 
       processHoldBackQueue(holdBackQueueSeq, true); // Controllo la coda di messaggi
 
     }else{
 
-      if(auctionMessageToReceive.messageType == "bid"){                                 // Se il messaggio è di tipo "bid"
+      if(message.messageType == "bid"){                                 // Se il messaggio è di tipo "bid"
 
-        holdBackQueuePart.push_back(auctionMessageToReceive);                              // Aggiungi il messaggio alla hold-back queue
+        holdBackQueuePart.push_back(message);                              // Aggiungi il messaggio alla hold-back queue
         Serial.println("[Partecipant] Messaggio aggiunto alla hold-back queue con:");
-        Serial.println("SenderId: "+String(auctionMessageToReceive.senderId));
-        Serial.println("MessageId: "+String(auctionMessageToReceive.messageId));
-        Serial.println("Bid: "+String(auctionMessageToReceive.bid));
+        Serial.println("SenderId: "+String(message.senderId));
+        Serial.println("MessageId: "+String(message.messageId));
+        Serial.println("Bid: "+String(message.bid));
         // Stampa il vector clock
         Serial.print("Vector Clock: [ ");
         for (int i = 0; i < NUM_NODES; i++) { // Usa NUM_NODES per la dimensione dinamica
-          Serial.print(auctionMessageToReceive.vectorClock[i]);
+          Serial.print(message.vectorClock[i]);
           if (i < NUM_NODES - 1) Serial.print(", "); // Aggiungi virgola tra i valori, ma non alla fine
         }
         Serial.println(" ]");
+        Serial.println("[Partecipant] La HoldBackQueue è la seguente");
+        printHoldBackQueuePart();
 
         // Quando mi arriva un messaggio controllo tutta la coda
         // Così a partire dall'ultimo vedo se è causale, e se il suo invio mi ha "sbloccato" altri in coda
@@ -244,20 +333,26 @@ void onDataReceive(const uint8_t *mac, const uint8_t *incomingData, int len){
 
         processHoldBackQueue(holdBackQueuePart, false); // Controllo la coda di messaggi
 
-      }else if(auctionMessageToReceive.messageType == "order"){
+      }else if(message.messageType == "order"){
         Serial.println("[Partecipant] Arrivato un messaggio di ordinamento");
-        Serial.println("SenderId: "+String(auctionMessageToReceive.senderId));
-        Serial.println("MessageId: "+String(auctionMessageToReceive.messageId));
-        Serial.println("Sequence Number: "+String(auctionMessageToReceive.sequenceNum));
+        Serial.println("SenderId: "+String(message.senderId));
+        Serial.println("MessageId: "+String(message.messageId));
+        Serial.println("Sequence Number: "+String(message.sequenceNum));
+        Serial.println("[Partecipant] La HoldBackQueue di ordinamento è la seguente");
+        printHoldBackQueueOrder();
 
         // Controllo la corrispondenza del messaggio di ordinamento arrivato
-        bool firstCorrispondence = checkCorrispondence(auctionMessageToReceive,"fromOrderToCausal");
+        bool firstCorrispondence = checkCorrispondence(message,"fromOrderToCausal");
         if(firstCorrispondence){
-          TO_Deliver(auctionMessageToReceive);
+          TO_Deliver(message);
           Serial.println("[Partecipant] Ho fatto la TO Deliver");
+          Serial.println("[Partecipant] La HoldBackQueue di ordinamento è diventata");
+          printHoldBackQueueOrder();
         }else{
-          holdBackQueueOrder.push_back(auctionMessageToReceive);
+          holdBackQueueOrder.push_back(message);
           Serial.println("[Partecipant] Messaggio aggiunto alla hold-back queue di ordinamento.");
+          Serial.println("[Partecipant] La HoldBackQueue di ordinamento è diventata");
+          printHoldBackQueueOrder();
         }
 
         // Controllo se il messaggio di ordinamento mi ha sbloccato qualcosa
@@ -271,6 +366,8 @@ void onDataReceive(const uint8_t *mac, const uint8_t *incomingData, int len){
                 checkPopCorrispondence = true;
                 TO_Deliver(*it);
                 Serial.println("[Partecipant] Ho fatto la TO Deliver");
+                Serial.println("[Partecipant] La HoldBackQueue di ordinamento è diventata");
+                printHoldBackQueueOrder();
                 break;
               }
               ++it;
@@ -278,11 +375,11 @@ void onDataReceive(const uint8_t *mac, const uint8_t *incomingData, int len){
           }while(checkPopCorrispondence);
         }
 
-      }else if(auctionMessageToReceive.messageType == "start"){
+      }else if(message.messageType == "start"){
         startAuction();
         auctionStarted = true;
         Serial.println("[Partecipant] Asta iniziata sono così felice");
-      }else if(auctionMessageToReceive.messageType == "end"){
+      }else if(message.messageType == "end"){
         auctionStarted = false;
         Serial.println("[Partecipant] Asta finita, sono triste");
         printHoldBackQueues();
@@ -395,7 +492,6 @@ void CO_Deliver(struct_message message){
 }
 
 void TO_Deliver(struct_message message){
-  auctionMessageToReceive = message;
   int idToDelete = message.messageId;
   int senderIdToDelete = message.senderId;
 
@@ -416,34 +512,33 @@ void TO_Deliver(struct_message message){
   sequenceNumber++;
 
   // Controllo se la Highest Bid è cambiata
-  if(auctionMessageToReceive.bid > highestBid){                                      // Se la bid che ho prelevato è più grande...
-    highestBid = auctionMessageToReceive.bid;                                        // Aggiorno l'offerta più alta la momento
-    winnerNodeId = auctionMessageToReceive.senderId;                                 // e il vincitore momentaneo
+  if(message.bid > highestBid){                                      // Se la bid che ho prelevato è più grande...
+    highestBid = message.bid;                                        // Aggiorno l'offerta più alta la momento
+    winnerNodeId = message.senderId;                                 // e il vincitore momentaneo
   }
 
 
   Serial.println("[Partecipant] Messaggio consegnato");
-  Serial.println("[Partecipant] Bid offerta " + String(auctionMessageToReceive.bid) + "da parte di " + String(auctionMessageToReceive.senderId));
+  Serial.println("[Partecipant] Bid offerta " + String(message.bid) + "da parte di " + String(message.senderId));
   Serial.println("[Partecipant] Il mio Sequence Number ora è " + String(sequenceNumber));
 
 }
 
 void sendSequencer(struct_message message) {
 
-    lastWasBid = false;
-    auctionMessageToSendOrder = message;
-    auctionMessageToSendOrder.messageType = "order";                                             // Setto il tipo di messaggio
+    struct_message orderMessage = message;
+    orderMessage.messageType = "order";                                             // Setto il tipo di messaggio
 
     // Controllo se la Highest Bid è cambiata
-    if(auctionMessageToSendOrder.bid > highestBid){                                      // Se la bid che ho prelevato è più grande...
-      highestBid = auctionMessageToSendOrder.bid;                                        // Aggiorno l'offerta più alta la momento
-      winnerNodeId = auctionMessageToSendOrder.senderId;                                 // e il vincitore momentaneo
-      auctionMessageToSendOrder.highestBid = highestBid;                                 // Aggiorno il messaggio con l'offerta più alta
+    if(orderMessage.bid > highestBid){                                      // Se la bid che ho prelevato è più grande...
+      highestBid = orderMessage.bid;                                        // Aggiorno l'offerta più alta la momento
+      winnerNodeId = orderMessage.senderId;                                 // e il vincitore momentaneo
+      orderMessage.highestBid = highestBid;                                 // Aggiorno il messaggio con l'offerta più alta
     }
 
-    auctionMessageToSendOrder.sequenceNum = sequenceNumber;
+    orderMessage.sequenceNum = sequenceNumber;
     //esp_err_t result = esp_now_send(broadcastAddress, (uint8_t *) &auctionMessageToSendOrder, sizeof(auctionMessageToSendOrder));
-    queueMessage(auctionMessageToSendOrder);
+    queueMessage(orderMessage);
     sequenceNumber++;
 
     restartTimer = millis();                                                // Aggiorno il timer di restart
@@ -458,32 +553,22 @@ void sendSequencer(struct_message message) {
     */
 }
 
-void sendBid(){
-
-  lastWasBid = true;
-  auctionMessageToSend.bid = highestBid+1;                                               // Incremento l'offerta
-  highestBid++;
-  auctionMessageToSend.senderId = myNodeId;                                              // Setto il mittente
-  auctionMessageToSend.messageId = messageId+1;                                     //
-  messageId++;
-  for (int i = 0; i < NUM_NODES; i++) {
-    auctionMessageToSend.vectorClock[i] = vectorClock[i];
-  }
-  auctionMessageToSend.vectorClock[myNodeId] = vectorClock[myNodeId] + 1;
-  auctionMessageToSend.messageType = "bid";
+void sendBid(struct_message message){
 
   //esp_err_t result = esp_now_send(broadcastAddress, (uint8_t *) &auctionMessageToSend, sizeof(auctionMessageToSend));
   if(myNodeId == 0){
-    queueMessage(auctionMessageToSend);
+    queueMessage(message);
   }else{
-    esp_err_t result = esp_now_send(broadcastAddress, (uint8_t *) &auctionMessageToSend, sizeof(auctionMessageToSend));
+    esp_err_t result = esp_now_send(broadcastAddress, (uint8_t *) &message, sizeof(auctionMessageToSend));
 
     if (result == ESP_OK) {
-      Serial.println("[Partecipant] Offerta inviata di " + String(auctionMessageToSend.bid) + " da parte di " + String(auctionMessageToSend.senderId));
+      Serial.println("[Partecipant] Offerta inviata di " + String(message.bid) + " da parte di " + String(message.senderId));
     } else {
       Serial.println("[Partecipant] Errore nell'invio del messaggio di offerta");
     }
   }
+
+  onDataReceive(message);
 
 }
 
@@ -574,6 +659,15 @@ bool checkButtonPressed(int pinButton) {
 
 // Funzione di debug per stampare le code di messaggi dei partecipanti
 void printHoldBackQueues(){
+
+  printHoldBackQueuePart();
+  printHoldBackQueueCausal();
+  printHoldBackQueueOrder();
+
+}
+
+void printHoldBackQueuePart(){
+
   Serial.println("HoldBackQueuePart:");
   for (int i = 0; i < holdBackQueuePart.size(); i++) {
     Serial.println("MessageId: "+String(holdBackQueuePart[i].messageId));
@@ -586,6 +680,10 @@ void printHoldBackQueues(){
     }
     Serial.println(" ]");
   }
+
+}
+
+void printHoldBackQueueCausal(){
 
   Serial.println("HoldBackQueueCausal:");
   for (int i = 0; i < holdBackQueueCausal.size(); i++) {
@@ -600,6 +698,10 @@ void printHoldBackQueues(){
     Serial.println(" ]");
   }
 
+}
+
+void printHoldBackQueueOrder(){
+
   Serial.println("HoldBackQueueOrder:");
   for (int i = 0; i < holdBackQueueOrder.size(); i++) {
     Serial.println("MessageId: "+String(holdBackQueueOrder[i].messageId));
@@ -608,6 +710,23 @@ void printHoldBackQueues(){
     Serial.print("Vector Clock: [ ");
     for (int j = 0; j < NUM_NODES; j++) { // Usa NUM_NODES per la dimensione dinamica
       Serial.print(holdBackQueueOrder[i].vectorClock[j]);
+      if (j < NUM_NODES - 1) Serial.print(", "); // Aggiungi virgola tra i valori, ma non alla fine
+    }
+    Serial.println(" ]");
+  }
+
+}
+
+void printHoldBackQueueSeq(){
+
+  Serial.println("HoldBackQueueSeq:");
+  for (int i = 0; i < holdBackQueueSeq.size(); i++) {
+    Serial.println("MessageId: "+String(holdBackQueueSeq[i].messageId));
+    Serial.println("SenderId: "+String(holdBackQueueSeq[i].senderId));
+    Serial.println("Bid: "+String(holdBackQueueSeq[i].bid));
+    Serial.print("Vector Clock: [ ");
+    for (int j = 0; j < NUM_NODES; j++) { // Usa NUM_NODES per la dimensione dinamica
+      Serial.print(holdBackQueueSeq[i].vectorClock[j]);
       if (j < NUM_NODES - 1) Serial.print(", "); // Aggiungi virgola tra i valori, ma non alla fine
     }
     Serial.println(" ]");
@@ -635,6 +754,24 @@ void setup() {
 
   myNodeId = macToNumberMap[myMacAddress];                                        // Assegno l'id del nodo in base al MAC address
 
+  // Inizializza la coda dei task
+  callbackQueue = xQueueCreate(10, sizeof(CallbackMessage));
+  if (callbackQueue == NULL) {
+      Serial.println("Errore nella creazione della coda");
+      return;
+  }
+
+  // Crea il task per gestire le callback
+  xTaskCreatePinnedToCore(
+        callbackTask,
+        "CallbackTask",
+        4096,
+        NULL,
+        configMAX_PRIORITIES - 1,
+        &callbackTaskHandle,
+        1
+  );
+
   // Configurazione del bottone per l'inizio dell'asta
   if(myNodeId == 0){
     pinMode(BUTTON_AUCTION_PIN, INPUT_PULLUP);
@@ -648,7 +785,7 @@ void setup() {
         return;
   }
 
-  esp_now_register_send_cb(OnDataSent);                                             // registro la funzione "OnDataSent()" come funzione di callback all'invio di un messagio
+  esp_now_register_send_cb(triggerOnDataSent);                                             // registro la funzione "OnDataSent()" come funzione di callback all'invio di un messagio
 
   memcpy(peerInfo.peer_addr, broadcastAddress, 6);                                  // copio le informazione dei peer nelle locazioni dei peer address
   peerInfo.channel = 0;
@@ -659,7 +796,7 @@ void setup() {
         return;
   }
 
-  esp_now_register_recv_cb(esp_now_recv_cb_t(onDataReceive));                                             // registro la funzione "OnDataRecv()" come funzione di callback alla ricezione di un messagio
+  esp_now_register_recv_cb(esp_now_recv_cb_t(triggerOnDataReceive));                                             // registro la funzione "OnDataRecv()" come funzione di callback alla ricezione di un messagio
 
   delay(1000);
 
@@ -679,7 +816,7 @@ void loop() {
 
     // Controllo se il bottone di inizio asta è stato premuto e se non è già in corso un'asta
     if(checkButtonPressed(BUTTON_AUCTION_PIN) && !auctionStarted){
-      startAuction();                                            // setto le variabili iniziali, tra cui la variabile che segna l'inizio dell'asta
+      startAuction();                                                           // setto le variabili iniziali, tra cui la variabile che segna l'inizio dell'asta
       auctionMessageToSend.messageType = "start";                               // setto il messaggio di inizio asta
       //esp_err_t result = esp_now_send(broadcastAddress, (uint8_t *) &auctionMessageToSend, sizeof(auctionMessageToSend)); // invio il messaggio di inizio asta
       queueMessage(auctionMessageToSend);
@@ -693,7 +830,7 @@ void loop() {
 
       // Se bottone premuto per fare offerta
       if(checkButtonPressed(BUTTON_BID_PIN)){
-        sendBid();                                                                      // invio l'offerta
+        triggerSendBid();   
       }
 
     }
@@ -705,7 +842,7 @@ void loop() {
     if(auctionStarted){
         // Se bottone premuto per fare offerta
         if(checkButtonPressed(BUTTON_BID_PIN)){
-          sendBid();                                                                      // invio l'offerta
+          triggerSendBid();                                                                      // invio l'offerta
         }
     }
 
