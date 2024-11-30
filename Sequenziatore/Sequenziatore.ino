@@ -1,16 +1,34 @@
 #include <esp_now.h>
+#include <esp_wifi.h>
 #include <WiFi.h>
 #include <vector>
 #include <map>
 #include <queue>
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
+#include <HTTPClient.h>
+#include <ArduinoJson.h>
 
 #define DURATION_TIME 60000
 #define NUM_NODES 5
 #define BUTTON_AUCTION_PIN 18
 #define BUTTON_BID_PIN 19
 
+/*
+############### LEGGERE PER CONFIGURAZIONE #########################
+Essendo un prototipo del prodotto finale bisogna configurare "a mano" l'ambiente di rete del sistema:
+- Configurare il nome della rete WiFi e la password
+- Configurare l'indirizzo IP del server che riceve i dati
+- Configurare l'indirizzo MAC del sequenziatore
+- Configurare l'indirizzo MAC dei nodi partecipanti
+- Cambiare manualmente il canale wifi delle schede ed uniformarlo
+#####################################################################
+*/
+
+// Configurazione WiFi
+const char* ssid = "POCO F3";
+const char* password = "280901sal";
+const char* serverUrl = "http://192.168.208.131:8000/receive-data";
 
 // Indirizzo di broadcast per inviare a tutti i nodi
 uint8_t broadcastAddress[] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
@@ -160,6 +178,12 @@ void processQueue(){
     } else {
       Serial.println("[Sequencer] Errore nell'invio del messaggio da parte di "+String(message.senderId));
     }
+
+    // Faccio l'invio del messaggio di ordinamento al serverDashboard
+    if(message.messageType != "bid"){
+      sendAuctionStateToServer(message);
+    }
+    
     isSending = false;
   }
 }
@@ -542,15 +566,7 @@ void sendSequencer(struct_message message) {
     sequenceNumber++;
 
     restartTimer = millis();                                                // Aggiorno il timer di restart
-
-    /**
-    if (result == ESP_OK) {
-        Serial.println("[Sequencer] Offerta inviata di " + String(auctionMessageToSendOrder.bid) + " da parte di " + String(auctionMessageToSendOrder.senderId));
-        Serial.println("[Sequencer] con sequence number di " + String(sequenceNumber-1));
-    } else {
-        Serial.println("[Sequencer] Errore nell'invio del messaggio di ordinamento");
-    }
-    */
+    
 }
 
 void sendBid(struct_message message){
@@ -570,6 +586,48 @@ void sendBid(struct_message message){
 
   onDataReceive(message);
 
+}
+
+void sendAuctionStateToServer(struct_message msg) {
+    if (WiFi.status() != WL_CONNECTED) {
+        Serial.println("WiFi not connected!");
+        return;
+    }
+
+    HTTPClient http;
+    Serial.print("Connecting to: ");
+    Serial.println(serverUrl);
+    
+    http.begin(serverUrl);
+    http.addHeader("Content-Type", "application/json");
+
+    StaticJsonDocument<512> doc;
+    doc["bid"] = msg.bid;
+    doc["highest_bid"] = highestBid;
+    doc["message_id"] = msg.messageId;
+    doc["sender_id"] = msg.senderId;
+    doc["sequence_number"] = msg.sequenceNum;  
+    doc["winner_id"] = winnerNodeId;          
+    doc["message_type"] = msg.messageType;
+    
+    String jsonString;
+    serializeJson(doc, jsonString);
+    
+    Serial.print("Sending JSON: ");
+    Serial.println(jsonString);
+
+    int httpResponseCode = http.POST(jsonString);
+    
+    if (httpResponseCode > 0) {
+        String response = http.getString();
+        Serial.printf("HTTP Response code: %d\n", httpResponseCode);
+        Serial.println("Server Response: " + response);
+    } else {
+        Serial.printf("Error sending to server. Error: %d\n", httpResponseCode);
+        Serial.println(http.errorToString(httpResponseCode));
+    }
+
+    http.end();
 }
 
 bool isCausallyRead(struct_message messageToCheck){
@@ -737,7 +795,6 @@ void printHoldBackQueueSeq(){
 /**********************FUNZIONE DI SETUP**************************************/
 void setup() {
 
-
   // Aggiungi alcune associazioni MAC address -> numero
   macToNumberMap["F8:B3:B7:2C:71:80"] = 0; //Indo cina (XXSR69)
   macToNumberMap["F8:B3:B7:44:BF:C8"] = 1;
@@ -752,8 +809,12 @@ void setup() {
   Serial.println("MAC Address: " + myMacAddress);
   Serial.println("My Node ID: " + String(macToNumberMap[myMacAddress]));
 
+  // DA CAMBIARE SE SI CAMBIA HOTSPOT E NON HA STESSO CANALE WI FI
+  esp_wifi_set_channel(6, WIFI_SECOND_CHAN_NONE); 
+
   myNodeId = macToNumberMap[myMacAddress];                                        // Assegno l'id del nodo in base al MAC address
 
+  
   // Inizializza la coda dei task
   callbackQueue = xQueueCreate(10, sizeof(CallbackMessage));
   if (callbackQueue == NULL) {
@@ -772,10 +833,26 @@ void setup() {
         1
   );
 
-  // Configurazione del bottone per l'inizio dell'asta
-  if(myNodeId == 0){
+  // Configurazione del bottone per l'inizio dell'asta e della connessione wi-fi
+  if (myNodeId == 0) {
     pinMode(BUTTON_AUCTION_PIN, INPUT_PULLUP);
+
+    // Il sequenziatore deve fare anche da station, riconfigurazione necessaria
+    WiFi.mode(WIFI_AP_STA);
+    delay(2000);
+
+    WiFi.begin(ssid, password);
+    while (WiFi.status() != WL_CONNECTED) {
+        delay(1000);
+        Serial.println("Connecting to WiFi...");
+    }
+    Serial.println("Connected to WiFi!");
+    Serial.println("Connesso al Wi-Fi. Canale: " + String(WiFi.channel()));
+    
+  }else{
+    Serial.println("Connesso al Wi-Fi. Canale: " + String(WiFi.channel()));
   }
+
 
   //Configurazione del bottone per l'offerta
   pinMode(BUTTON_BID_PIN, INPUT_PULLUP);
@@ -804,12 +881,6 @@ void setup() {
 
 /*************************FUNZIONE LOOP***************************************************/
 void loop() {
-
-  // DA FARE:
-  // Finire le funzioni di debouncing   (FATTO...forse)
-  // Implementare il messaggio di inizio asta
-  // Eventualmente anche il messaggio di fine asta
-  // Controllare Arrivo dei messaggi di ordinamento prima un sequence più alto e poi quello attuale
 
   //### COMPORTAMENTO DEL SEQUENZIATORE ###
   if(myNodeId == 0){
