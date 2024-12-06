@@ -10,30 +10,34 @@
     <div class="container">
         <h1>Dashboard Asta in Tempo Reale</h1>
 
-        <div class="card">
-            <h2>Dettagli Oggetto</h2>
-            <p>Nome: <span id="item-name">{{ item_name }}</span></p>
-            <p>Descrizione: <span id="item-description">{{ item_description }}</span></p>            
-        </div>
-        
+        <!-- Card per Dettagli Oggetto e Stato Attuale affiancate -->
         <div class="dashboard">
+            <div class="card">
+                <h2>Dettagli Oggetto</h2>
+                <p>Nome: <span id="item-name">{{ item_name }}</span></p>
+                <p>Descrizione: <span id="item-description">{{ item_description }}</span></p>            
+            </div>
+
             <div class="card">
                 <h2>Stato Attuale</h2>
                 <p>Stato: <span id="auction-status" class="status"></span></p>
                 <p>Offerta più alta: <span id="highest-bid" class="highlight">0</span></p>
                 <p>ID Vincitore: <span id="winner-id" class="highlight">-</span></p>
             </div>
-            
-            <div class="card">
-                <h2>Vector Clock</h2>
-                <div id="vector-clock" class="vector-clock"></div>
-            </div>
         </div>
-        
+
+        <!-- Card per Cronologia Offerte -->
         <div class="card">
             <h2>Cronologia Offerte</h2>
             <div id="bid-history" class="bid-history"></div>
         </div>
+    </div>
+
+    <!-- Bottone Vai alla Home in alto a destra -->
+    <div class="home-button-container">
+        <form action="/reset-auction" method="get">
+            <button type="submit" class="button">Vai alla Home</button>
+        </form>
     </div>
 
     <script src="/static/js/dashBoard.js"></script>

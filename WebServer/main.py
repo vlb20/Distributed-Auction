@@ -229,6 +229,16 @@ async def auction_statistics():
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+    
+@app.get("/reset-auction")
+async def reset_auction(request: Request):
+    print("Resetting auction")
+    auction_state["is_active"] = False
+    auction_state["highest_bid"] = 0
+    auction_state["winner_id"] = -1
+    auction_state["sequence_number"] = 0
+    auction_state["bid_history"] = []
+    return templates.TemplateResponse("home.html", {"request": request})
 
 @app.get("/", response_class=HTMLResponse)
 async def get_dashboard(request: Request):
