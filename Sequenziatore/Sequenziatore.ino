@@ -8,11 +8,15 @@
 #include <freertos/task.h>
 #include <HTTPClient.h>
 #include <ArduinoJson.h>
+#include <Wire.h>           
+#include <LiquidCrystal_I2C.h>
 
 #define DURATION_TIME 60000
 #define NUM_NODES 5
 #define BUTTON_AUCTION_PIN 18
 #define BUTTON_BID_PIN 19
+#define SDA_PIN 21
+#define SCL_PIN 22
 
 /*
 ############### LEGGERE PER CONFIGURAZIONE #########################
@@ -30,6 +34,10 @@ const char* ssid = "VLB";
 const char* password = "damiano06";
 const char* serverUrl = "http://192.168.196.131:8000/receive-data";
 
+// Crea un'istanza dell'oggetto LiquidCrystal_I2C
+// (Indirizzo I2C, Numero colonne, Numero righe)
+LiquidCrystal_I2C lcd(LCD_I2C_ADDRESS, 16, 2);
+
 // Indirizzo di broadcast per inviare a tutti i nodi
 uint8_t broadcastAddress[] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
 String mac_sequencer = "F8:B3:B7:2C:71:80";
@@ -44,6 +52,7 @@ int messageId = 0;
 String myMacAddress = "";
 int vectorClock[NUM_NODES] = {0,0,0,0,0};               //serve a tutti i partecipanti per avere un ordine causale
 int highestBid = 0;                                      //segna il valore dell'offerta più alta attuale
+int myHighestBid = 0;                                   //segna il valore dell'offerta personale più alta attuale, per LCD
 int winnerNodeId = -1;                                   //id del vincitore dell'asta attuale
 unsigned long auctionEndTime = 0;                       //tempo di fine asta
 unsigned long restartTimer = 0;                         // con la funzione millis() aggiorno ogni volta quando mi arriva un offerta, mi serve per implementare un timer
@@ -214,6 +223,7 @@ void triggerSendBid(){
   struct_message message;
   message.bid = highestBid+1;                                               // Incremento l'offerta
   highestBid++;
+  myHighestBid = highestBid;
   message.senderId = myNodeId;                                              // Setto il mittente
   message.messageId = messageId+1;                                     //
   messageId++;
@@ -875,12 +885,28 @@ void setup() {
 
   esp_now_register_recv_cb(esp_now_recv_cb_t(triggerOnDataReceive));                                             // registro la funzione "OnDataRecv()" come funzione di callback alla ricezione di un messagio
 
+  // Inizializza la comunicazione I2C e il display LCD
+  lcd.init();
+  lcd.backlight(); // Accende la retroilluminazione
+
+  // Mostra un messaggio sul display
+  lcd.setCursor(0, 0); // Posiziona il cursore sulla prima colonna della prima riga
+  lcd.print("My Node ID: "+String(myNodeId));
+  lcd.setCursor(0, 1); // Posiziona il cursore sulla prima colonna della seconda riga
+  lcd.print("HB: "+String(highestBid" - LB: "+String(myHighestBid)));
+
   delay(1000);
 
 }
 
 /*************************FUNZIONE LOOP***************************************************/
 void loop() {
+
+  // Gestione dei led
+  lcd.setCursor(0, 0); 
+  lcd.print("My Node ID: "+String(myNodeId));
+  lcd.setCursor(0, 1); 
+  lcd.print("HB: "+String(highestBid" - LB: "+String(myHighestBid)));  
 
   //### COMPORTAMENTO DEL SEQUENZIATORE ###
   if(myNodeId == 0){
