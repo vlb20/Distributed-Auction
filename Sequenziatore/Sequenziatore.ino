@@ -26,9 +26,9 @@ Essendo un prototipo del prodotto finale bisogna configurare "a mano" l'ambiente
 */
 
 // Configurazione WiFi
-const char* ssid = "POCO F3";
-const char* password = "280901sal";
-const char* serverUrl = "http://192.168.208.131:8000/receive-data";
+const char* ssid = "VLB";
+const char* password = "damiano06";
+const char* serverUrl = "http://192.168.196.131:8000/receive-data";
 
 // Indirizzo di broadcast per inviare a tutti i nodi
 uint8_t broadcastAddress[] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
@@ -810,7 +810,7 @@ void setup() {
   Serial.println("My Node ID: " + String(macToNumberMap[myMacAddress]));
 
   // DA CAMBIARE SE SI CAMBIA HOTSPOT E NON HA STESSO CANALE WI FI
-  esp_wifi_set_channel(6, WIFI_SECOND_CHAN_NONE); 
+  esp_wifi_set_channel(11, WIFI_SECOND_CHAN_NONE); 
 
   myNodeId = macToNumberMap[myMacAddress];                                        // Assegno l'id del nodo in base al MAC address
 

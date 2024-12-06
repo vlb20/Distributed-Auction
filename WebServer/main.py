@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Form, Request
 from pydantic import BaseModel
 from pymongo import MongoClient
 from fastapi.responses import HTMLResponse
@@ -14,7 +14,8 @@ auction_state ={
     "highest_bid": 0,
     "winner_id": -1,
     "sequence_number": 0,
-    "bid_history": []
+    "bid_history": [],
+    "item":{}
 }
 
 class AuctionMessage(BaseModel):
@@ -32,6 +33,29 @@ class ESPCommand(BaseModel):
 
 app.mount("/static", StaticFiles(directory="static"), name="static")
 templates = Jinja2Templates(directory="templates")
+
+# Endpoint iniziale per la configurazione dell'asta
+@app.post("/set-auction")
+async def set_auction(request: Request, item_name: str = Form(...), item_description: str = Form(...)):
+    print(f"Setting up auction: {item_name}, {item_description}")
+    
+    # Inizializza lo stato dell'asta
+    auction_state["is_active"] = True
+    auction_state["highest_bid"] = 0
+    auction_state["winner_id"] = -1
+    auction_state["sequence_number"] = 0
+    auction_state["bid_history"] = []
+    auction_state["item"] = {
+        "name": item_name,
+        "description": item_description,
+    }
+
+     # Passa nome e descrizione al template
+    return templates.TemplateResponse("dashboard.html", {
+        "request": request,
+        "item_name": item_name,
+        "item_description": item_description
+    })
 
 @app.post("/send-command")
 async def send_command(command: ESPCommand):
@@ -87,7 +111,7 @@ async def get_bid_history():
 @app.get("/", response_class=HTMLResponse)
 async def get_dashboard(request: Request):
     print("Received request for dashboard page")
-    return templates.TemplateResponse("dashboard.html", {"request": request})
+    return templates.TemplateResponse("home.html", {"request": request})
 
 if __name__ == "__main__":
     print("Starting server on http://0.0.0.0:8000")
