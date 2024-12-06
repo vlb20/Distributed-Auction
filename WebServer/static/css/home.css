@@ -4,6 +4,7 @@ body {
     margin: 0;
     padding: 20px;
     background-color: #f0f2f5;
+    position: relative; /* Aggiungi questa linea per supportare il posizionamento assoluto */
 }
 
 .container {
@@ -16,6 +17,7 @@ body {
     border-radius: 10px;
     padding: 20px;
     box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    margin-bottom: 20px; /* Aggiungi spazio tra le card */
 }
 
 .card h2 {
@@ -42,14 +44,44 @@ input, textarea {
 }
 
 .button {
-    background-color: #1a73e8;
+    background-color: #1a73e8;  /* Colore blu specificato */
     color: white;
     padding: 10px 15px;
     border: none;
     border-radius: 5px;
     cursor: pointer;
+    font-size: 16px;
 }
 
 .button:hover {
-    background-color: #155bb5;
+    background-color: #155bb5;  /* Colore più scuro al passaggio del mouse */
+}
+
+/* Modifica per i bottoni nella stessa card */
+.card-button-container {
+    display: flex;
+    justify-content: flex-start; /* Allinea i bottoni vicini, senza spaziatura eccessiva */
+    gap: 10px; /* Spazio tra i bottoni */
+}
+
+/* Posizionamento assoluto del bottone Vai alle Statistiche in alto a destra */
+.stats-button-container {
+    position: absolute;
+    top: 20px;
+    right: 20px;
+}
+
+/* Stile per i bottoni vicini */
+.card-button-container button {
+    padding: 10px 20px;
+    font-size: 16px;
+    cursor: pointer;
+    border: none;
+    border-radius: 5px;
+    background-color: #1a73e8;  /* Colore blu specificato */
+    color: white;
+}
+
+.card-button-container button:hover {
+    background-color: #155bb5;  /* Colore più scuro al passaggio del mouse */
 }

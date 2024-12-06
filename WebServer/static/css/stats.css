@@ -1,0 +1,124 @@
+body {
+    font-family: Arial, sans-serif;
+    margin: 0;
+    padding: 20px;
+    background-color: #f0f2f5;
+}
+
+.container {
+    max-width: 1200px;
+    margin: 0 auto;
+}
+
+/* Posizionamento del bottone in alto a destra */
+.header-btn {
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    padding: 10px 20px;
+    background-color: #4CAF50;
+    color: white;
+    border: none;
+    border-radius: 5px;
+    cursor: pointer;
+}
+
+.header-btn:hover {
+    background-color: #45a049;
+}
+
+header {
+    text-align: center;
+    margin-bottom: 30px;
+}
+
+header h1 {
+    font-size: 2.5rem;
+    color: #1a73e8;
+    margin-bottom: 10px;
+}
+
+section {
+    margin-bottom: 40px;
+}
+
+section h2 {
+    font-size: 1.8rem;
+    color: #1a73e8;
+    margin-bottom: 20px;
+}
+
+#auctions-container {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+    gap: 20px;
+}
+
+.card {
+    background: white;
+    border-radius: 10px;
+    padding: 20px;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.card h3 {
+    font-size: 1.2rem;
+    color: #333;
+    margin-top: 0;
+}
+
+.card p {
+    font-size: 1rem;
+    color: #555;
+}
+
+#auction-stats .card {
+    text-align: center;
+}
+
+canvas {
+    max-width: 100%;
+    height: auto;
+}
+
+.bid-entry {
+    padding: 10px;
+    border-bottom: 1px solid #eee;
+}
+
+.bid-entry:last-child {
+    border-bottom: none;
+}
+
+.highlight {
+    color: #1a73e8;
+    font-weight: bold;
+}
+
+.status {
+    padding: 5px 10px;
+    border-radius: 5px;
+    display: inline-block;
+    font-size: 0.9rem;
+    font-weight: bold;
+}
+
+.status.active {
+    background: #e6f4ea;
+    color: #137333;
+}
+
+.status.inactive {
+    background: #fce8e6;
+    color: #c5221f;
+}
+
+footer {
+    text-align: center;
+    padding: 20px 0;
+    background: #1a73e8;
+    color: white;
+    font-size: 0.9rem;
+    border-radius: 10px;
+    margin-top: 20px;
+}

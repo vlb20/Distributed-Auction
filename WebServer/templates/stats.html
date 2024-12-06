@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Auction History</title>
+    <link rel="stylesheet" href="/static/css/stats.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+    <header style="position: relative;">
+        <h1>Auction History</h1>
+        <!-- Bottone che rimanda alla home -->
+        <a href="/" class="header-btn">Home</a>
+    </header>
+
+    <section id="auction-history">
+        <h2>All Auctions</h2>
+        <div id="auctions-container">
+            <!-- Cards for each auction will be dynamically populated here -->
+        </div>
+    </section>
+
+    <section id="auction-stats">
+        <h2>Auction Statistics</h2>
+        <div class="card">
+            <canvas id="statsChart"></canvas>
+        </div>
+    </section>
+
+    <script src="/static/js/stats.js"></script>
+
+</body>
+</html>

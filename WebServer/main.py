@@ -57,7 +57,7 @@ async def set_auction(request: Request, item_name: str = Form(...), item_descrip
     print(f"Setting up auction: {item_name}, {item_description}")
 
     # Inizializza lo stato dell'asta
-    auction_state["is_active"] = True
+    auction_state["is_active"] = False
     auction_state["highest_bid"] = 0
     auction_state["winner_id"] = -1
     auction_state["sequence_number"] = 0
@@ -155,6 +155,11 @@ async def receive_data(message: AuctionMessage):
     except Exception as e:
         print(f"Error processing message: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
+    
+@app.get("/stats-page")
+async def stats_page(request: Request):
+    print("Received request for dashboard page")
+    return templates.TemplateResponse("stats.html",{"request": request})
 
 @app.get("/auction_state")
 async def get_auction_state():
