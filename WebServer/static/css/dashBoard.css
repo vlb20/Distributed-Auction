@@ -1,7 +1,8 @@
+
 /* Stile generale */
 body {
-    background-color: #1a1a2e; /* Sfondo scuro */
-    color: #fff; /* Testo bianco */
+    background-color: #f3f3f3; /* Sfondo marrone scuro */
+    color: #9b422d; /* Testo chiaro */
     font-family: Arial, sans-serif;
     margin: 0;
     padding: 20px;
@@ -17,7 +18,7 @@ body {
 
 /* Card */
 .card {
-    background-color: #2d2d45; /* Sfondo scuro delle card */
+    background-color: #00897b; /* Sfondo rosso mattone */
     border-radius: 10px;
     padding: 20px;
     box-shadow: 0px 4px 8px rgba(0, 0, 0, 0.3);
@@ -27,26 +28,26 @@ body {
 }
 
 .card h2 {
-    color: #3498db; /* Colore blu acceso */
+    color: #f3f3f3; /* Colore sabbia */
     margin-top: 0;
 }
 
 .card:hover {
-    background: linear-gradient(145deg, #2d2d45, #323250);
+    background: linear-gradient(145deg, #9b422d, #9b422d);
     box-shadow: 0px 6px 12px rgba(0, 0, 0, 0.4);
     transform: translateY(-3px);
 }
 
 .card p {
     font-size: 16px;
-    color: #dddddd;
+    color: #f3f3f3; /* Testo chiaro */
     line-height: 1.5; /* Migliora la leggibilità */
     margin: 10px 0;
 }
 
 .card span {
     font-weight: bold;
-    color: #ff7043; /* Arancione acceso */
+    color: #de9b59; /* Verde acqua */
 }
 
 /* Dashboard */
@@ -62,7 +63,7 @@ body {
 
 /* Bottoni */
 .button {
-    background-color: #007bff; /* Blu acceso */
+    background-color: #00897b; /* Verde acqua */
     color: #fff;
     padding: 10px 15px;
     border: none;
@@ -73,7 +74,7 @@ body {
 }
 
 .button:hover {
-    background-color: #0056b3; /* Blu scuro */
+    background-color: #006f63; /* Verde più scuro */
     transform: translateY(-2px);
 }
 
@@ -85,7 +86,7 @@ body {
 }
 
 .home-button-container button {
-    background-color: #d9534f; /* Rosso acceso */
+    background-color: #006f63; /* Rosso ramato */
     color: white;
     padding: 10px 20px;
     font-size: 16px;
@@ -96,7 +97,7 @@ body {
 }
 
 .home-button-container button:hover {
-    background-color: #c9302c; /* Rosso scuro */
+    background-color: #c9755d; /* Rosso mattone */
     transform: translateY(-2px);
 }
 
@@ -105,24 +106,24 @@ body {
     max-height: 300px; /* Limita l'altezza massima */
     overflow-y: auto; /* Aggiunge una barra di scorrimento verticale se necessario */
     padding: 10px;
-    border: 1px solid #444;
+    border: 1px solid #de9b59; /* Bordo sabbia */
     border-radius: 5px;
-    background-color: #1e1e30; /* Sfondo scuro */
+    background-color: #542700; /* Sfondo marrone scuro */
     transition: max-height 0.3s ease; /* Transizione fluida */
 }
 
 .bid-history p {
     margin: 5px 0;
     font-size: 14px;
-    color: #ccc; /* Testo tenue */
+    color: #de9b59; /* Testo sabbia */
 }
 
 .status.active {
-    background: #e6f4ea;
-    color: #137333;
+    background: #02be44; /* Verde acqua */
+    color: #e6f4ea; /* Testo chiaro */
 }
 
 .status.inactive {
-    background: #fce8e6;
-    color: #c5221f;
+    background: #fc2e00; /* Rosso mattone */
+    color: #f3f3f3; /* Testo chiaro */
 }
