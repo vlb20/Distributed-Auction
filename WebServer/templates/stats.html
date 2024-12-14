@@ -27,14 +27,32 @@
 
             <div class="stats-section">
                 <h2>Auction Statistics</h2>
-                <div class="stats-card">
-                    <canvas id="statsChart"></canvas>
+                <div class="stats-grid">
+                    <div class="stats-card">
+                        <h3>Average Winning Bid</h3>
+                        <canvas id="avgWinningBidChart"></canvas>
+                    </div>
+                    <div class="stats-card">
+                        <h3>Average Bids Per Auction</h3>
+                        <canvas id="avgBidsPerAuctionChart"></canvas>
+                    </div>
+                    <div class="stats-card value-card" id="maxWinningBidChart">
+                        <div class="simple-value-display">
+                            <h3>Maximum Winning Bid</h3>
+                            <div class="value">Loading...</div>
+                        </div>
+                    </div>
+                    <div class="stats-card value-card" id="minWinningBidChart">
+                        <div class="simple-value-display">
+                            <h3>Minimum Winning Bid</h3>
+                            <div class="value">Loading...</div>
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>
     </div>
 
-    <!-- Aggiunto il riferimento a stats.js -->
     <script src="/static/js/stats.js"></script>
 </body>
 </html>
