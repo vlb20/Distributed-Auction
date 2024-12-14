@@ -21,9 +21,8 @@ document.addEventListener("DOMContentLoaded", () => {
                 // Popola la cronologia delle offerte
                 historyDiv.innerHTML = data.map(bid => `
                     <div class="bid-entry">
-                        <strong>Nodo ${bid.sender_id}</strong> ha offerto ${bid.bid}€
+                        <strong>Nodo ${bid.sender_id}</strong> ha offerto ${bid.bid}
                         <br>
-                        <small>${new Date(bid.timestamp).toLocaleString()}</small>
                     </div>
                 `).join('');
 

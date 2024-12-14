@@ -8,27 +8,33 @@
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
 <body>
-    <header style="position: relative;">
-        <h1>Auction History</h1>
-        <!-- Bottone che rimanda alla home -->
-        <a href="/" class="header-btn">Home</a>
-    </header>
+    <div class="page-container">
+        <header>
+            <h1>Auction History</h1>
+            <a href="/" class="header-btn">Home</a>
+        </header>
 
-    <section id="auction-history">
-        <h2>All Auctions</h2>
-        <div id="auctions-container">
-            <!-- Cards for each auction will be dynamically populated here -->
+        <div class="content-container">
+            <div class="filters">
+                <select id="auctionSelect" class="auction-filter">
+                    <option value="all">All Auctions</option>
+                </select>
+            </div>
+
+            <div class="auctions-grid" id="auctions-container">
+                <!-- Auction cards will be dynamically inserted here -->
+            </div>
+
+            <div class="stats-section">
+                <h2>Auction Statistics</h2>
+                <div class="stats-card">
+                    <canvas id="statsChart"></canvas>
+                </div>
+            </div>
         </div>
-    </section>
+    </div>
 
-    <section id="auction-stats">
-        <h2>Auction Statistics</h2>
-        <div class="card">
-            <canvas id="statsChart"></canvas>
-        </div>
-    </section>
-
+    <!-- Aggiunto il riferimento a stats.js -->
     <script src="/static/js/stats.js"></script>
-
 </body>
 </html>

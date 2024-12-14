@@ -108,14 +108,14 @@ body {
     padding: 10px;
     border: 1px solid #de9b59; /* Bordo sabbia */
     border-radius: 5px;
-    background-color: #542700; /* Sfondo marrone scuro */
+    background-color: #f7f7f7; /* Sfondo marrone scuro */
     transition: max-height 0.3s ease; /* Transizione fluida */
 }
 
 .bid-history p {
     margin: 5px 0;
     font-size: 14px;
-    color: #de9b59; /* Testo sabbia */
+    color: #000000; /* Testo sabbia */
 }
 
 .status.active {

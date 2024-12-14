@@ -17,6 +17,7 @@
 #define BUTTON_BID_PIN 19
 #define SDA_PIN 21
 #define SCL_PIN 22
+#define LCD_I2C_ADDRESS 0x27
 
 /*
 ############### LEGGERE PER CONFIGURAZIONE #########################
@@ -30,9 +31,9 @@ Essendo un prototipo del prodotto finale bisogna configurare "a mano" l'ambiente
 */
 
 // Configurazione WiFi
-const char* ssid = "VLB";
-const char* password = "damiano06";
-const char* serverUrl = "http://192.168.196.131:8000/receive-data";
+const char* ssid = "POCO F3";
+const char* password = "280901sal";
+const char* serverUrl = "http://192.168.208.157:8000/receive-data";
 
 // Crea un'istanza dell'oggetto LiquidCrystal_I2C
 // (Indirizzo I2C, Numero colonne, Numero righe)
@@ -222,7 +223,7 @@ void triggerSendBid(){
 
   struct_message message;
   message.bid = highestBid+1;                                               // Incremento l'offerta
-  highestBid++;
+  //highestBid++;
   myHighestBid = highestBid;
   message.senderId = myNodeId;                                              // Setto il mittente
   message.messageId = messageId+1;                                     //
@@ -563,12 +564,19 @@ void sendSequencer(struct_message message) {
     struct_message orderMessage = message;
     orderMessage.messageType = "order";                                             // Setto il tipo di messaggio
 
+    Serial.println("sendSequencer - Received bid: " + String(orderMessage.bid));
+    Serial.println("sendSequencer - Current highestBid: " + String(highestBid));
+    Serial.println("sendSequencer - Message senderId: " + String(orderMessage.senderId));
+    Serial.println("sendSequencer - Current winnerNodeId: " + String(winnerNodeId));
+
     // Controllo se la Highest Bid è cambiata
     if(orderMessage.bid > highestBid){                                      // Se la bid che ho prelevato è più grande...
       highestBid = orderMessage.bid;                                        // Aggiorno l'offerta più alta la momento
       winnerNodeId = orderMessage.senderId;                                 // e il vincitore momentaneo
       orderMessage.highestBid = highestBid;                                 // Aggiorno il messaggio con l'offerta più alta
     }
+
+    Serial.println("sendSequencer - After update winnerNodeId: " + String(winnerNodeId));
 
     orderMessage.sequenceNum = sequenceNumber;
     //esp_err_t result = esp_now_send(broadcastAddress, (uint8_t *) &auctionMessageToSendOrder, sizeof(auctionMessageToSendOrder));
@@ -820,7 +828,7 @@ void setup() {
   Serial.println("My Node ID: " + String(macToNumberMap[myMacAddress]));
 
   // DA CAMBIARE SE SI CAMBIA HOTSPOT E NON HA STESSO CANALE WI FI
-  esp_wifi_set_channel(11, WIFI_SECOND_CHAN_NONE); 
+  esp_wifi_set_channel(1, WIFI_SECOND_CHAN_NONE); 
 
   myNodeId = macToNumberMap[myMacAddress];                                        // Assegno l'id del nodo in base al MAC address
 
@@ -886,6 +894,7 @@ void setup() {
   esp_now_register_recv_cb(esp_now_recv_cb_t(triggerOnDataReceive));                                             // registro la funzione "OnDataRecv()" come funzione di callback alla ricezione di un messagio
 
   // Inizializza la comunicazione I2C e il display LCD
+  Wire.begin(SDA_PIN, SCL_PIN);
   lcd.init();
   lcd.backlight(); // Accende la retroilluminazione
 
@@ -893,7 +902,7 @@ void setup() {
   lcd.setCursor(0, 0); // Posiziona il cursore sulla prima colonna della prima riga
   lcd.print("My Node ID: "+String(myNodeId));
   lcd.setCursor(0, 1); // Posiziona il cursore sulla prima colonna della seconda riga
-  lcd.print("HB: "+String(highestBid" - LB: "+String(myHighestBid)));
+  lcd.print("HB: " + String(highestBid) + " - LB: " + String(myHighestBid));
 
   delay(1000);
 
@@ -906,7 +915,7 @@ void loop() {
   lcd.setCursor(0, 0); 
   lcd.print("My Node ID: "+String(myNodeId));
   lcd.setCursor(0, 1); 
-  lcd.print("HB: "+String(highestBid" - LB: "+String(myHighestBid)));  
+  lcd.print("HB: " + String(highestBid) + " - LB: " + String(myHighestBid));  
 
   //### COMPORTAMENTO DEL SEQUENZIATORE ###
   if(myNodeId == 0){
